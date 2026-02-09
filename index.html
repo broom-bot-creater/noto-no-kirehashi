@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ノートの切れ端 v23.0</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
+
+    <script>
+        window.onerror = function(msg, src, line) { alert("エラー: " + msg + "\n行: " + line); };
+    </script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, deleteDoc, addDoc, collection, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- 1:1000025799003:web:1938601e7e65c5d62f427e ---
+        const firebaseConfig = {
+            apiKey: "あなたのAPIキー",
+            authDomain: "noto-no-kirehashi.firebaseapp.com",
+            projectId: "noto-no-kirehashi",
+            storageBucket: "noto-no-kirehashi.firebasestorage.app",
+            messagingSenderId: "あなたのID",
+            appId: "あなたのアプリID"
+        };
+        // --------------------------------------------------
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        const COLLECTION_NAME = "rooms_v23_0_title"; // バージョン更新
+        const MAX_HISTORY = 30; 
+        const TIME_LIMIT_MS = 24 * 60 * 60 * 1000; 
+        const MAX_FUSEN_PER_TURN = 10; 
+
+        const STORAGE = {
+            ID: 'noto_user_id_v22', // ID系はv22と互換性維持
+            NAME: 'noto_user_name_v22',
+            ROOM: 'noto_room_name_v22',
+            PASS: 'noto_room_pass_v22',
+            CANVAS: 'noto_canvas_backup_'
+        };
+
+        const State = {
+            myId: null,
+            myName: null,
+            roomName: "",
+            roomData: null,
+            historyData: [],
+            isProcessing: false,
+            unsubRoom: null,
+            unsubHistory: null,
+            forceGallery: false,
+            timer: null,
+            lastTurnId: "",
+            selectIndex: -1,
+            colorUrl: "",
+            tickets: 1
+        };
+
+        // --------------------------------------------------
+        //  初期化
+        // --------------------------------------------------
+
+        window.addEventListener('DOMContentLoaded', initApp);
+
+        function initApp() {
+            window.resumeDrawing = resumeDrawing; 
+
+            // URLパラメータチェック（招待かどうか）
+            const urlParams = new URLSearchParams(window.location.search);
+            const rawGroup = urlParams.get('group');
+            const rawPass = urlParams.get('pass');
+            const inviteGroup = rawGroup ? rawGroup.trim() : null;
+            const invitePass = rawPass ? rawPass.trim() : null;
+
+            const savedId = localStorage.getItem(STORAGE.ID);
+            const savedName = localStorage.getItem(STORAGE.NAME);
+            const savedRoom = localStorage.getItem(STORAGE.ROOM);
+
+            // 招待状を持っている場合は、直接下駄箱（参加画面）へ
+            if (inviteGroup) {
+                // IDがなければ新規作成
+                if (!savedId) createNewIdentity();
+                else { State.myId = savedId; State.myName = savedName; }
+                
+                setupLobbyForInvite(inviteGroup, invitePass); // フォームに入力しておく
+                
+                // 下駄箱画面へ
+                window.showScreen('screen-getabako');
+                const msgEl = document.getElementById('getabako-msg');
+                const btnContinue = document.getElementById('btn-getabako-continue');
+                const btnIgnore = document.getElementById('btn-getabako-ignore');
+                const btnNew = document.getElementById('btn-getabako-new');
+
+                msgEl.innerHTML = `招待状が届いています。<br><strong>${State.myName || '新しい生徒'}</strong> さんとして参加しますか？`;
+                btnContinue.innerText = `👟 教室「${inviteGroup}」に入る`;
+                btnContinue.onclick = () => {
+                    if(!State.myName) State.myName = "名無し"; // 名前がない場合のフォールバック
+                    joinRoomLogic(inviteGroup, invitePass, State.myName, true);
+                };
+
+                btnIgnore.style.display = "block";
+                btnIgnore.onclick = () => {
+                    window.history.replaceState(null, null, window.location.pathname);
+                    window.showScreen('screen-title'); // タイトルへ戻る
+                };
+                
+                // 新規ボタンは隠す（ややこしいのでタイトルへ誘導）
+                btnNew.style.display = 'none';
+                return;
+            }
+
+            // 招待がない場合はタイトル画面へ
+            if (savedId) { State.myId = savedId; State.myName = savedName; }
+            setupTitleScreen();
+            window.showScreen('screen-title');
+        }
+
+        // タイトル画面のセットアップ
+        function setupTitleScreen() {
+            const savedRoom = localStorage.getItem(STORAGE.ROOM);
+            const savedName = localStorage.getItem(STORAGE.NAME);
+            const btnContinue = document.getElementById('title-btn-continue');
+
+            if (savedRoom && savedName) {
+                btnContinue.style.display = 'block';
+                btnContinue.innerHTML = `👟 続きから遊ぶ<br><span style="font-size:12px">(${savedRoom} / ${savedName})</span>`;
+                btnContinue.onclick = () => {
+                    const pass = localStorage.getItem(STORAGE.PASS);
+                    loginAsExistingUser(savedRoom, pass, false);
+                };
+            } else {
+                btnContinue.style.display = 'none';
+            }
+        }
+
+        async function loginAsExistingUser(room, pass, isInvite) {
+            State.myId = localStorage.getItem(STORAGE.ID);
+            State.myName = localStorage.getItem(STORAGE.NAME);
+            updateNameTag();
+            await joinRoomLogic(room, pass, State.myName, true);
+        }
+
+        function createNewIdentity() {
+            let existing = localStorage.getItem(STORAGE.ID);
+            if (!existing) {
+                existing = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                localStorage.setItem(STORAGE.ID, existing);
+            }
+            State.myId = existing;
+            updateNameTag();
+        }
+
+        function setupLobbyForInvite(group, pass) {
+            document.getElementById('join-room-name').value = group;
+            document.getElementById('join-pass').value = pass;
+        }
+
+        function resetLocalData() {
+            localStorage.clear();
+            State.myId = null; State.myName = null;
+        }
+
+        function updateNameTag() {
+            const el = document.getElementById('name-tag');
+            if (State.myId) { el.style.display = 'block'; el.innerText = `📛 ${State.myName || '名無し'} (${State.myId.substring(0,4)})`; } 
+            else { el.style.display = 'none'; }
+        }
+
+        // --------------------------------------------------
+        //  画面遷移
+        // --------------------------------------------------
+
+        window.showScreen = (id) => {
+            document.querySelectorAll('.screen').forEach(s => {
+                s.classList.remove('active');
+                s.style.display = 'none';
+            });
+            const target = document.getElementById(id);
+            if (target) {
+                target.classList.add('active');
+                target.style.display = 'flex';
+            }
+            // 背景切り替え
+            if (id === 'screen-game' || id === 'screen-coloring') document.body.className = 'bg-desk';
+            else document.body.className = 'bg-green';
+            
+            if(id === 'screen-game') setTimeout(() => initCanvas(), 100);
+            if(id === 'screen-coloring') setTimeout(() => initColoringCanvas(), 100);
+        };
+
+        // ロビーへの遷移（モード指定）
+        window.goToLobby = (mode) => {
+            window.showScreen('screen-lobby');
+            // 一旦ハイライトを消す
+            document.getElementById('create-section').classList.remove('highlight');
+            document.getElementById('join-section').classList.remove('highlight');
+
+            if (mode === 'create') {
+                document.getElementById('create-section').classList.add('highlight');
+                document.getElementById('create-section').scrollIntoView({ behavior: 'smooth' });
+            } else {
+                document.getElementById('join-section').classList.add('highlight');
+                document.getElementById('join-section').scrollIntoView({ behavior: 'smooth' });
+            }
+        };
+
+        // 遊び方モーダル
+        window.showHowTo = () => { document.getElementById('howto-modal').style.display = 'flex'; };
+        window.closeHowTo = () => { document.getElementById('howto-modal').style.display = 'none'; };
+
+        function getInviteUrl() {
+            const baseUrl = window.location.href.split('?')[0];
+            return `${baseUrl}?group=${encodeURIComponent(State.roomName)}&pass=${encodeURIComponent(State.roomData.password)}`;
+        }
+
+        // --------------------------------------------------
+        //  入室・作成
+        // --------------------------------------------------
+
+        window.createRoom = async () => {
+            const roomName = document.getElementById('new-room-name').value.trim();
+            const pass = document.getElementById('new-pass').value.trim();
+            const hostName = document.getElementById('new-host-name').value.trim();
+            if(!roomName || !pass || !hostName) return alert("全部入力してね！");
+
+            // IDがない場合はここで作成
+            if (!State.myId) createNewIdentity();
+
+            State.myName = hostName; 
+            localStorage.setItem(STORAGE.NAME, State.myName); 
+            updateNameTag();
+
+            const docRef = doc(db, COLLECTION_NAME, roomName);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if ((Date.now() - (data.startTime || 0)) < 60 * 60 * 1000) {
+                    return alert("その教室名は現在使われています。\n（作成から1時間以内のため上書きできません）");
+                }
+                if(!confirm(`「${roomName}」は以前使われていた教室ですが、\n時間が経っているため再利用できます！\n\nここを掃除して、新しい教室として使いますか？\n（※前の黒板の絵は消えます）`)) return;
+            }
+            
+            State.forceGallery = false;
+            const me = { id: State.myId, name: hostName };
+            const now = Date.now();
+            
+            await setDoc(docRef, { 
+                password: pass, 
+                players: [me], 
+                currentTurnIndex: 0, 
+                liveFusens: [], 
+                startTime: now, 
+                turnStartTime: now 
+            });
+            
+            State.roomName = roomName;
+            localStorage.setItem(STORAGE.ROOM, roomName);
+            localStorage.setItem(STORAGE.PASS, pass);
+            startListen();
+        };
+
+        window.joinRoom = async () => {
+            const roomName = document.getElementById('join-room-name').value.trim();
+            const pass = document.getElementById('join-pass').value.trim();
+            const guestName = document.getElementById('join-name').value.trim();
+            if(!roomName || !pass || !guestName) return alert("全部入力してね！");
+            
+            // IDがない場合はここで作成
+            if (!State.myId) createNewIdentity();
+
+            State.myName = guestName; 
+            localStorage.setItem(STORAGE.NAME, State.myName); 
+            updateNameTag();
+            await joinRoomLogic(roomName, pass, guestName, false);
+        };
+
+        async function joinRoomLogic(roomName, pass, guestName, isAuto = false) {
+            const docRef = doc(db, COLLECTION_NAME, roomName);
+            try {
+                const rDoc = await getDoc(docRef);
+                if(!rDoc.exists()) {
+                    if(isAuto) { alert(`教室「${roomName}」が見つかりません。`); clearLocalRoomData(); window.showScreen('screen-title'); } 
+                    else { alert("グループが見つかりません。"); }
+                    return;
+                }
+                if(rDoc.data().password !== pass) {
+                    if(isAuto) { localStorage.removeItem(STORAGE.PASS); window.showScreen('screen-title'); }
+                    else { alert("合言葉が違います。"); }
+                    return;
+                }
+
+                State.roomName = roomName;
+                localStorage.setItem(STORAGE.ROOM, roomName);
+                localStorage.setItem(STORAGE.PASS, pass);
+                localStorage.setItem(STORAGE.NAME, guestName);
+
+                let players = rDoc.data().players || [];
+                const existingIndex = players.findIndex(p => p.id === State.myId);
+                
+                if (existingIndex !== -1) {
+                    players[existingIndex].name = guestName;
+                } else {
+                    players.push({ id: State.myId, name: guestName });
+                }
+
+                await updateDoc(docRef, { players: players });
+                State.forceGallery = false;
+                startListen();
+            } catch(e) { console.error(e); alert("入室エラー:\n" + e.message); window.showScreen('screen-title'); }
+        }
+
+        function startListen() {
+            if (State.unsubRoom) { State.unsubRoom(); State.unsubRoom = null; }
+            if (State.unsubHistory) { State.unsubHistory(); State.unsubHistory = null; }
+
+            const roomRef = doc(db, COLLECTION_NAME, State.roomName);
+            
+            State.unsubRoom = onSnapshot(roomRef, (snap) => {
+                if (!snap.exists()) { 
+                    alert("教室が解散されました。"); 
+                    clearLocalRoomData(); location.reload(); return; 
+                }
+                State.roomData = snap.data();
+                updateUI();
+            });
+
+            const historyQuery = query(collection(roomRef, "drawings"), orderBy("ts", "asc"));
+            State.unsubHistory = onSnapshot(historyQuery, (snap) => {
+                State.historyData = snap.docs.map(d => d.data());
+                updateUI();
+            });
+        }
+
+        // --------------------------------------------------
+        //  UI更新
+        // --------------------------------------------------
+
+        function updateUI() {
+            if (!State.roomData) return;
+            const players = State.roomData.players || [];
+            
+            if (!players.find(p => p.id === State.myId) && State.roomName) {
+                alert("退学（キック）になりました。");
+                clearLocalRoomData(); location.reload(); return;
+            }
+
+            const history = State.historyData || [];
+            const isHost = (players.length > 0 && players[0].id === State.myId);
+
+            if (history.length >= MAX_HISTORY) { renderGraduationScreen(history, isHost); return; }
+
+            let turnIdx = State.roomData.currentTurnIndex;
+            if (turnIdx >= players.length) turnIdx = 0;
+
+            const currentPlayerObj = players[turnIdx];
+            const currentTurnId = currentPlayerObj ? currentPlayerObj.id : "???";
+            const isMyTurn = (currentTurnId === State.myId);
+
+            if (currentTurnId === State.myId && State.lastTurnId !== State.myId && State.lastTurnId !== "") {
+                State.forceGallery = false;
+            }
+            State.lastTurnId = currentTurnId;
+
+            document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName);
+            document.getElementById('header-sub-msg').innerText = `今は ${currentPlayerObj ? currentPlayerObj.name : "誰か"} さんの番`;
+
+            checkTimeLimit();
+            if (!State.timer) State.timer = setInterval(checkTimeLimit, 1000 * 60);
+
+            const disbandBtn = document.getElementById('btn-disband');
+            const gameDisbandBtn = document.getElementById('btn-game-disband');
+
+            if (isHost) { 
+                disbandBtn.style.display = 'block'; 
+                gameDisbandBtn.style.display = 'inline-block'; 
+            } else { 
+                disbandBtn.style.display = 'none'; 
+                gameDisbandBtn.style.display = 'none'; 
+            }
+
+            const memberListEl = document.getElementById('member-list');
+            memberListEl.innerHTML = "";
+            players.forEach((p, index) => {
+                const li = document.createElement('li');
+                const badge = index === 0 ? "👑" : "👤";
+                const isMe = p.id === State.myId ? " (自分)" : "";
+                const isTurn = index === turnIdx ? "🖌️" : "";
+                li.innerHTML = `<span>${badge}${isTurn} ${p.name}${isMe}</span>`;
+                if (isHost && p.id !== State.myId) {
+                    const kickBtn = document.createElement('button');
+                    kickBtn.innerText = "×"; kickBtn.className = "kick-btn";
+                    kickBtn.onclick = () => kickPlayer(p.id, p.name);
+                    li.appendChild(kickBtn);
+                }
+                memberListEl.appendChild(li);
+            });
+
+            const myIdx = players.findIndex(p => p.id === State.myId);
+            let waitMsg = "";
+            if (myIdx !== -1) {
+                let waitCount = (myIdx - turnIdx + players.length) % players.length;
+                waitMsg = (waitCount === 0) ? "あなたの番！" : `あと ${waitCount} 人`;
+            }
+            document.getElementById('turn-indicator').innerText = waitMsg;
+            document.querySelectorAll('.invite-url-box').forEach(el => el.value = getInviteUrl());
+
+            const continueBtn = document.getElementById('continue-btn');
+            if (isMyTurn && State.forceGallery) { continueBtn.style.display = 'block'; } 
+            else { continueBtn.style.display = 'none'; }
+
+            const cheerSection = document.getElementById('cheer-section');
+            if (!isMyTurn && !State.forceGallery && currentTurnId !== "???") {
+                cheerSection.style.display = 'block';
+                document.getElementById('cheer-target-name').innerText = currentPlayerObj ? currentPlayerObj.name : "友達";
+            } else {
+                cheerSection.style.display = 'none';
+            }
+
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = "";
+            if (history.length === 0) {
+                gallery.innerHTML = '<p class="empty-msg">まだ絵がありません。<br>1ページ目を描こう！</p>';
+            } else {
+                history.map((item, index) => ({item, index})).reverse().forEach(({item, index}) => {
+                    const div = document.createElement('div');
+                    div.style.position = "relative";
+                    const img = document.createElement('img');
+                    img.src = item.url; 
+                    img.onclick = () => openDetailModal(index);
+                    div.appendChild(img);
+                    if (item.fusens && item.fusens.length > 0) {
+                        const badge = document.createElement('div');
+                        badge.className = "fusen-badge";
+                        badge.innerText = item.fusens.length;
+                        div.appendChild(badge);
+                    }
+                    gallery.appendChild(div);
+                });
+            }
+            document.getElementById('history-count').innerText = `${history.length}/${MAX_HISTORY}`;
+
+            if (isMyTurn && !State.isProcessing && !State.forceGallery) {
+                window.showScreen('screen-game');
+                
+                renderLiveFusens(State.roomData.liveFusens || []);
+
+                const prevBar = document.getElementById('prev-history-bar');
+                prevBar.innerHTML = ""; 
+                
+                const historyLen = history.length;
+                if (historyLen > 0) {
+                    const startIdx = Math.max(0, historyLen - 5);
+                    const recentHistory = history.slice(startIdx, historyLen);
+                    
+                    recentHistory.forEach((item) => {
+                        const thumbBox = document.createElement('div');
+                        thumbBox.className = "thumb-box";
+                        const img = document.createElement('img');
+                        img.src = item.url;
+                        img.onclick = () => openReferenceModal(item.url);
+                        thumbBox.appendChild(img);
+                        prevBar.appendChild(thumbBox);
+                    });
+                    document.getElementById('prev-history-container').style.display = 'flex';
+                } else {
+                    document.getElementById('prev-history-container').style.display = 'none';
+                }
+
+                setTimeout(() => initCanvas(), 100);
+            } else {
+                window.showScreen('screen-waiting');
+            }
+        }
+
+        window.openReferenceModal = (url) => {
+            const modal = document.getElementById('reference-modal');
+            const img = document.getElementById('ref-modal-img');
+            img.src = url;
+            modal.style.display = 'flex';
+        };
+        window.closeReferenceModal = () => {
+            document.getElementById('reference-modal').style.display = 'none';
+        };
+
+        function renderLiveFusens(fusens) {
+            const container = document.getElementById('live-fusen-layer');
+            container.innerHTML = ""; 
+            fusens.forEach(f => {
+                const el = document.createElement('div');
+                el.className = `fusen-sticker fusen-${f.type}`;
+                let text = "👍"; if (f.type === 'fight') text = "🔥"; if (f.type === 'suki') text = "🥰";
+                el.innerText = text; 
+                el.style.left = f.x + "%"; 
+                el.style.top = f.y + "%";
+                container.appendChild(el);
+            });
+        }
+
+        window.sendCheer = async (type) => {
+            if (State.isProcessing) return;
+            const currentFusens = State.roomData.liveFusens || [];
+            const myCount = currentFusens.filter(f => f.from === State.myId).length;
+            if (myCount >= MAX_FUSEN_PER_TURN) { alert("応援は1ターンにつき10回まで！"); return; }
+
+            const corner = Math.floor(Math.random() * 4);
+            let x, y; const margin = 10; const jitter = 10;
+            if (corner === 0) { x = margin + Math.random()*jitter; y = margin + Math.random()*jitter; }
+            else if (corner === 1) { x = (90-margin) - Math.random()*jitter; y = margin + Math.random()*jitter; }
+            else if (corner === 2) { x = margin + Math.random()*jitter; y = (90-margin) - Math.random()*jitter; }
+            else { x = (90-margin) - Math.random()*jitter; y = (90-margin) - Math.random()*jitter; }
+
+            const newFusen = { from: State.myId, type: type, x: x, y: y, ts: Date.now() };
+            try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { liveFusens: arrayUnion(newFusen) }); } catch(e) { console.error(e); }
+        };
+
+        function resumeDrawing() { State.forceGallery = false; updateUI(); }
+
+        window.resetRoomHistory = async () => {
+            if(!confirm("【重要】\n今までの絵を全て消して、\n1ページ目からやり直しますか？\n（参加者はそのままです）")) return;
+            deleteRoomLogic(false);
+        };
+
+        window.disbandRoom = async () => {
+            if(!confirm("【解散】\n本当に解散しますか？\n部屋もデータも全て消えます。")) return;
+            deleteRoomLogic(true);
+        };
+
+        async function deleteRoomLogic(deleteRoomSelf) {
+            try {
+                const roomRef = doc(db, COLLECTION_NAME, State.roomName);
+                const q = query(collection(roomRef, "drawings"));
+                const snap = await getDocs(q);
+                const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+                await Promise.all(deletePromises);
+
+                if (deleteRoomSelf) {
+                    await deleteDoc(roomRef);
+                    alert("教室を解散しました。");
+                    clearLocalRoomData();
+                    location.reload();
+                } else {
+                    await updateDoc(roomRef, { 
+                        currentTurnIndex: 0, 
+                        turnStartTime: Date.now(), 
+                        liveFusens: []
+                    });
+                    alert("黒板をきれいにしました！");
+                }
+            } catch(e) { alert(e.message); }
+        }
+
+        // --------------------------------------------------
+        //  キャンバス
+        // --------------------------------------------------
+        let ctx, drawing = false; 
+        const PENCIL_COLOR = "#555555"; 
+
+        function initCanvas(isResize = false) {
+            const c = document.getElementById('canvas'); 
+            const container = document.getElementById('canvas-area'); 
+            if (!c || !container) return; 
+            if (!ctx) ctx = c.getContext('2d');
+
+            if (c.width !== container.clientWidth || c.height !== container.clientHeight) {
+                c.width = container.clientWidth;
+                c.height = container.clientHeight;
+                ctx.lineCap = "round"; ctx.lineJoin = "round";
+                window.setPen('thin');
+                restoreFromBackup();
+            }
+
+            function restoreFromBackup() {
+                const backup = localStorage.getItem(STORAGE.CANVAS + State.roomName);
+                if (backup) {
+                    const img = new Image();
+                    img.onload = () => ctx.drawImage(img, 0, 0, c.width, c.height);
+                    img.src = backup;
+                }
+            }
+
+            const getPos = (e) => { 
+                const rect = c.getBoundingClientRect(); 
+                const scaleX = c.width / rect.width; 
+                const scaleY = c.height / rect.height;
+                const clientX = (e.clientX || (e.touches && e.touches[0].clientX));
+                const clientY = (e.clientY || (e.touches && e.touches[0].clientY));
+                return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY }; 
+            };
+            const saveToLocal = () => { if (State.roomName) localStorage.setItem(STORAGE.CANVAS + State.roomName, c.toDataURL()); };
+
+            c.onmousedown = c.ontouchstart = (e) => { drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); if(e.touches) e.preventDefault(); };
+            c.onmousemove = c.ontouchmove = (e) => { if(drawing) { const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); if(e.touches) e.preventDefault(); } };
+            c.onmouseup = c.ontouchend = () => { drawing = false; saveToLocal(); };
+            
+            if (!isResize) restoreFromBackup();
+        }
+
+        window.setPen = (type) => { 
+            document.querySelectorAll('#screen-game .tool-btn').forEach(b => b.classList.remove('selected'));
+            if (type === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = 20; ctx.globalAlpha = 1.0; ctx.shadowBlur = 0; document.getElementById('btn-eraser').classList.add('selected'); } else { ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = PENCIL_COLOR; ctx.shadowColor = PENCIL_COLOR; if (type === 'thin') { ctx.lineWidth = 2; ctx.globalAlpha = 0.6; ctx.shadowBlur = 1; document.getElementById('btn-thin').classList.add('selected'); } else { ctx.lineWidth = 8; ctx.globalAlpha = 0.4; ctx.shadowBlur = 3; document.getElementById('btn-thick').classList.add('selected'); } }
+        };
+
+        function isCanvasBlank(canvas) {
+            const context = canvas.getContext('2d');
+            const pixelBuffer = new Uint32Array(
+                context.getImageData(0, 0, canvas.width, canvas.height).data.buffer
+            );
+            return !pixelBuffer.some(color => color !== 0);
+        }
+
+        function getCanvasJpeg() {
+            const c = document.getElementById('canvas');
+            const tempC = document.createElement('canvas');
+            tempC.width = c.width;
+            tempC.height = c.height;
+            const tCtx = tempC.getContext('2d');
+            tCtx.fillStyle = "#ffffff";
+            tCtx.fillRect(0, 0, tempC.width, tempC.height);
+            tCtx.drawImage(c, 0, 0);
+            return tempC.toDataURL("image/jpeg", 0.8);
+        }
+
+        window.submitArt = async () => {
+            const canvas = document.getElementById('canvas');
+            if (isCanvasBlank(canvas)) {
+                return alert("まっしろだよ！\n何か描いてから回してね。");
+            }
+
+            if(!confirm("描き終わった？")) return;
+            State.isProcessing = true; 
+            try {
+                const dataUrl = getCanvasJpeg();
+                const nextTurn = (State.roomData.currentTurnIndex + 1) % State.roomData.players.length;
+                const fusensToSave = State.roomData.liveFusens || [];
+                const newHistoryItem = { url: dataUrl, authorId: State.myId, fusens: fusensToSave, ts: Date.now() };
+
+                await addDoc(collection(db, COLLECTION_NAME, State.roomName, "drawings"), newHistoryItem);
+
+                await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { 
+                    currentTurnIndex: nextTurn, 
+                    turnStartTime: Date.now(),
+                    liveFusens: []
+                });
+                
+                localStorage.removeItem(STORAGE.CANVAS + State.roomName);
+                const c = document.getElementById('canvas'); const tCtx = c.getContext('2d'); tCtx.clearRect(0, 0, c.width, c.height);
+                State.forceGallery = true; State.isProcessing = false; 
+                updateUI();
+            } catch (e) { alert("送信エラー: " + e.message); State.isProcessing = false; updateUI(); }
+        };
+
+        // --- その他機能 ---
+        window.leaveRoom = async () => {
+            if(!confirm("本当に転校（退出）しますか？")) return;
+            if (State.roomData && State.roomData.players) {
+                const newPlayers = State.roomData.players.filter(p => p.id !== State.myId);
+                let newTurnIdx = State.roomData.currentTurnIndex; if (newTurnIdx >= newPlayers.length) newTurnIdx = 0;
+                try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { players: newPlayers, currentTurnIndex: newTurnIdx }); } catch(e) { console.error(e); }
+            }
+            clearLocalRoomData(); alert("転校しました。"); location.reload();
+        };
+        function clearLocalRoomData() { localStorage.removeItem(STORAGE.ROOM); localStorage.removeItem(STORAGE.PASS); if(State.roomName) localStorage.removeItem(STORAGE.CANVAS + State.roomName); }
+        window.resetIdentity = () => { if(!confirm("IDをリセットして転校（再読込）しますか？")) return; localStorage.clear(); location.reload(); };
+
+        window.openDetailModal = (index) => { 
+            State.selectIndex = index; 
+            const item = State.historyData[index]; 
+            document.getElementById('detail-img').src = item.url; 
+            const fc = document.getElementById('detail-fusen-layer'); 
+            fc.innerHTML=""; 
+            if(item.fusens) item.fusens.forEach(f=>{ 
+                const el=document.createElement('div'); 
+                el.className=`fusen-sticker fusen-${f.type}`; 
+                let t = "👍"; if(f.type==='fight')t="🔥"; if(f.type==='suki')t="🥰";
+                el.innerText=t; 
+                el.style.left=f.x+"%"; el.style.top=f.y+"%"; 
+                fc.appendChild(el); 
+            }); 
+            
+            let html = "";
+            if (State.historyData.length >= MAX_HISTORY) {
+                html += `<hr style="margin:10px 0;border:0;border-top:1px dashed #ccc;"><button onclick="startColoringFromModal('${item.url}')" style="background:#ff9800;color:#fff;border:none;padding:5px 15px;border-radius:15px;font-size:12px;">🎨 塗り絵する (CM)</button>`; 
+            } else {
+                html += `<p style="color:#888; font-size:10px;">卒業（30枚）すると塗り絵ができます</p>`;
+            }
+            
+            document.getElementById('detail-actions').innerHTML=html; 
+            document.getElementById('detail-modal').style.display='flex'; 
+        };
+        window.closeDetailModal = () => { document.getElementById('detail-modal').style.display='none'; State.selectIndex=-1; };
+        window.startColoringFromModal = (url) => { closeDetailModal(); startColoring(url); };
+        
+        function checkTimeLimit() { 
+            if(!State.roomData||State.historyData.length>=MAX_HISTORY)return; 
+            const p=State.roomData.players||[]; if(p.length===0)return; 
+            const elapsed=Date.now()-(State.roomData.turnStartTime||State.roomData.startTime||Date.now()); 
+            const ratio=(TIME_LIMIT_MS-elapsed)/TIME_LIMIT_MS; 
+            document.querySelectorAll('.timer-bar-fill').forEach(pb => {
+                pb.style.width=Math.max(0,Math.floor(ratio*100))+"%"; 
+                if(ratio*100<20)pb.classList.add('short');else pb.classList.remove('short'); 
+            });
+            if(ratio<=0&&!State.isProcessing)skipTurnAutomatically(); 
+        }
+        async function skipTurnAutomatically() { State.isProcessing=true; try{ const next=(State.roomData.currentTurnIndex+1)%State.roomData.players.length; await updateDoc(doc(db,COLLECTION_NAME,State.roomName),{currentTurnIndex:next,turnStartTime:Date.now()}); }catch(e){console.error(e);}finally{State.isProcessing=false;} }
+        window.startColoring = async (url) => { if(State.tickets<=0)return alert("チケットがありません"); if(!confirm("CMを見て塗り絵を始めますか？"))return; document.getElementById('cm-overlay').style.display='flex'; await new Promise(r=>setTimeout(r,3000)); document.getElementById('cm-overlay').style.display='none'; State.tickets--; State.colorUrl=url; window.showScreen('screen-coloring'); };
+        window.closeColoring = () => { if(!confirm("終了しますか？"))return; if(State.historyData.length>=MAX_HISTORY)window.showScreen('screen-graduation'); else window.showScreen('screen-waiting'); updateUI(); };
+        
+        window.deleteRoomData = async () => { 
+            if(!confirm("削除しますか？"))return; 
+            deleteRoomLogic(true);
+        };
+
+        function renderGraduationScreen(history, isHost) { const currentScreen = document.querySelector('.screen.active'); if (currentScreen && (currentScreen.id === 'screen-coloring' || document.getElementById('detail-modal').style.display === 'flex')) return; window.showScreen('screen-graduation'); document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName); document.getElementById('coloring-ticket-count').innerText = State.tickets; const grid = document.getElementById('grad-grid'); grid.innerHTML = ""; history.forEach((item, i) => { const div = document.createElement('div'); div.className = "grad-item"; const img = document.createElement('img'); img.src = item.url; img.onclick = () => openDetailModal(i); div.appendChild(img); if (item.fusens && item.fusens.length > 0) { const badge = document.createElement('span'); badge.style.fontSize = "10px"; badge.innerText = `💌 ${item.fusens.length}`; div.appendChild(document.createElement('br')); div.appendChild(badge); } grid.appendChild(div); }); const deleteArea = document.getElementById('host-delete-area'); if (isHost) { deleteArea.style.display = 'block'; } else { deleteArea.style.display = 'none'; } }
+        function initColoringCanvas() { const c=document.getElementById('coloring-canvas'); if(!cCtx)cCtx=c.getContext('2d'); c.width=c.parentElement.clientWidth; c.height=c.parentElement.clientHeight; cCtx.lineCap="round"; cCtx.lineJoin="round"; document.getElementById('line-art-overlay').src=State.colorUrl; document.getElementById('pen-size-slider').value=20; window.setMarker('marker'); const getPos=(e)=>{const r=c.getBoundingClientRect(); const sx=c.width/r.width; const sy=c.height/r.height; return {x:((e.clientX||e.touches[0].clientX)-r.left)*sx, y:((e.clientY||e.touches[0].clientY)-r.top)*sy};}; let d=false; c.onmousedown=c.ontouchstart=(e)=>{d=true;const p=getPos(e);cCtx.beginPath();cCtx.moveTo(p.x,p.y);if(e.touches)e.preventDefault();}; c.onmousemove=c.ontouchmove=(e)=>{if(d){const p=getPos(e);cCtx.lineTo(p.x,p.y);cCtx.stroke();if(e.touches)e.preventDefault();}}; c.onmouseup=c.ontouchend=()=>{d=false;}; }
+        let cCtx;
+        window.setMarker=(t)=>{ cCtx.globalCompositeOperation='source-over'; cCtx.lineWidth=document.getElementById('pen-size-slider').value; document.querySelectorAll('.tool-box').forEach(b=>b.classList.remove('selected')); if(t==='marker'){document.getElementById('tool-marker').classList.add('selected');updateColor();}else if(t==='crayon'){document.getElementById('tool-crayon').classList.add('selected');updateColor();}else{cCtx.globalCompositeOperation='destination-out';cCtx.globalAlpha=1;document.getElementById('tool-eraser').classList.add('selected');} };
+        window.updateSize=()=>{cCtx.lineWidth=document.getElementById('pen-size-slider').value;}; window.updateColor=()=>{const c=document.getElementById('color-picker').value; document.documentElement.style.setProperty('--current-color',c); if(cCtx.globalCompositeOperation!=='destination-out'){ if(document.getElementById('tool-marker').classList.contains('selected')){ const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16); cCtx.strokeStyle=`rgba(${r},${g},${b},0.4)`; }else{ cCtx.strokeStyle=c; } } };
+        window.saveColoring=async()=>{ if(!confirm("完成？"))return; const t=document.createElement('canvas'); t.width=cCtx.canvas.width; t.height=cCtx.canvas.height; const tx=t.getContext('2d'); tx.fillStyle="#fff"; tx.fillRect(0,0,t.width,t.height); tx.drawImage(cCtx.canvas,0,0); tx.drawImage(document.getElementById('line-art-overlay'),0,0,t.width,t.height); t.toBlob(b=>{ const f=new File([b],"nurie.png",{type:"image/png"}); if(navigator.share){navigator.share({files:[f]}).catch(()=>{downloadBlob(b)})}else{downloadBlob(b)} }); };
+        function downloadBlob(blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "nurie.png"; a.click(); alert("画像を保存しました！"); }
+        window.kickPlayer = async (targetId, targetName) => { if (!confirm(`${targetName} さんを強制退室させますか？`)) return; const newPlayers = State.roomData.players.filter(p => p.id !== targetId); let newTurnIdx = State.roomData.currentTurnIndex; if (newTurnIdx >= newPlayers.length) newTurnIdx = 0; try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { players: newPlayers, currentTurnIndex: newTurnIdx }); } catch(e) { alert(e.message); } };
+        let resizeTimeout;
+        window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { const gameScreen = document.getElementById('screen-game'); const colorScreen = document.getElementById('screen-coloring'); if (gameScreen.style.display === 'flex') initCanvas(true); if (colorScreen.style.display === 'flex') initColoringCanvas(); }, 200); });
+        window.copyInvite = () => { navigator.clipboard.writeText(getInviteUrl()).then(()=>alert("URLコピーしました")); };
+
+    </script>
+    <style>
+        :root { --current-color: #ffeb3b; } * { box-sizing: border-box; } body { font-family: 'Yomogi', cursive, sans-serif; margin: 0; padding: 0; color: #4a3b2a; height: 100vh; overflow: hidden; display: flex; flex-direction: column; transition: background 1s; } 
+        /* タイトル画面用アニメーション背景 */
+        .bg-green { background-color: #006940; background-image: radial-gradient(#008751 10%, transparent 10%); background-size: 20px 20px; position: relative; }
+        .bg-green::before {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E");
+            pointer-events: none; opacity: 0.3; animation: dust 20s linear infinite;
+        }
+        @keyframes dust { 0% { background-position: 0 0; } 100% { background-position: 100px 100px; } }
+
+        .bg-desk { background-color: #cba67b; background-image: repeating-linear-gradient(115deg, transparent, transparent 20px, rgba(90, 60, 30, 0.1) 21px, transparent 22px), repeating-linear-gradient(24deg, transparent, transparent 35px, rgba(90, 60, 30, 0.08) 36px, transparent 37px), radial-gradient(ellipse at 20% 40%, rgba(0,0,0,0.1) 0%, transparent 50%), radial-gradient(ellipse at 80% 70%, rgba(139, 100, 60, 0.15) 0%, transparent 60%), repeating-linear-gradient(0deg, rgba(100, 70, 40, 0.05) 0px, rgba(100, 70, 40, 0.05) 1px, transparent 1px, transparent 3px); background-position: 0 0, 50px 30px, 0 0, 0 0, 0 0; } .screen { display: none; flex-direction: column; width: 100%; height: 100%; padding-bottom: 80px; overflow-y: auto; -webkit-overflow-scrolling: touch; } .active { display: flex; } #screen-game, #screen-coloring { overflow: hidden; touch-action: none; } .ad-space { background: #fff9c4; height: 30px; width: 100%; color: #888; font-size: 10px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #ddd; } .notebook-header { background-color: #006940; border: 4px solid #fdd835; border-radius: 4px; margin: 10px; padding: 10px; text-align: center; color: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.2); position: relative; } .header-title-box { border: 2px solid #fdd835; padding: 5px 10px; display: inline-block; margin-bottom: 5px; background: rgba(0,0,0,0.1); border-radius: 20px; } .room-name-label { margin: 0; font-size: 22px; letter-spacing: 2px; font-weight: bold; color: #fffde7; } 
+        /* タイマーバー共通クラス */
+        .timer-pencil-container { flex: 1; max-width: 200px; height: 14px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.6); border-radius: 7px; margin: 0 10px; overflow: visible; position: relative; z-index: 50; display: inline-block; width: 100%; } 
+        .timer-bar-fill { height: 100%; width: 100%; background: #81c784; border-radius: 6px; position: relative; transition: width 0.5s linear, background 1s; } 
+        .timer-bar-fill::after { content: ''; position: absolute; right: -8px; top: 0; width: 0; height: 0; border-style: solid; border-width: 7px 0 7px 8px; border-color: transparent transparent transparent #fdd835; } 
+        .timer-bar-fill::before { content: ''; position: absolute; right: -11px; top: 5px; width: 3px; height: 4px; background: #333; border-radius: 1px; z-index: 10; } 
+        .timer-bar-fill.short { background: #ff8a80; } .timer-bar-fill.short::after { border-color: transparent transparent transparent #ffab91; } 
+        .lobby-card { background: #fff; margin: 20px; padding: 25px 20px; border-radius: 4px; box-shadow: 3px 3px 0 rgba(0,0,0,0.2); border: 2px solid #ddd; position: relative; } .lobby-card::before { content: ""; position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px; border: 1px solid #eee; pointer-events: none; } h3 { text-align: center; border-bottom: 2px solid #006940; padding-bottom: 5px; margin-top: 0; color: #006940; } input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; font-family: inherit; font-size: 16px; outline: none; } input:focus { border-color: #006940; background: #fff; } .action-btn { width: 100%; padding: 12px; background: #006940; color: #fff; font-family: inherit; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; box-shadow: 0 3px 0 #004d40; margin-top: 10px; font-size: 18px; } .action-btn:active { transform: translateY(3px); box-shadow: none; } .highlight { border: 3px solid #fdd835; background: #fffde7; } #member-list { list-style: none; padding: 0; margin: 5px 0; background: rgba(0,0,0,0.2); border-radius: 4px; text-align: left; } #member-list li { padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 14px; display: flex; justify-content: space-between; align-items: center; } .kick-btn { background: #e53935; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; } #canvas-area { flex: 1; padding: 15px; display: flex; flex-direction: column; justify-content: center; width: 100%; overflow: hidden; position: relative; } 
+        #live-fusen-layer { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index: 20; }
+        .notebook-paper { background-color: #fff; width: 100%; height: 100%; border-radius: 2px; box-shadow: 2px 4px 10px rgba(0,0,0,0.2); position: relative; background-image: linear-gradient(90deg, transparent 39px, #ffcdd2 39px, #ffcdd2 41px, transparent 41px), linear-gradient(#e0e0e0 1px, transparent 1px); background-size: 100% 100%, 100% 40px; } canvas { width: 100%; height: 100%; touch-action: none; cursor: crosshair; background: transparent !important; } 
+        #prev-history-container { position: absolute; top: -30px; right: 0; display: none; gap: 5px; z-index: 10; max-width: 100%; overflow-x: auto; padding-bottom: 5px; }
+        .thumb-box { min-width: 40px; height: 40px; border: 2px solid #fff; box-shadow: 1px 1px 3px rgba(0,0,0,0.3); background: #fff; transform: rotate(5deg); cursor: pointer; transition: transform 0.1s; } .thumb-box:nth-child(even) { transform: rotate(-3deg); } .thumb-box:last-child { transform: rotate(0deg); border: 2px solid #fdd835; } .thumb-box:active { transform: scale(1.1); } .thumb-box img { width: 100%; height: 100%; object-fit: cover; }
+        #reference-modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.95); z-index:3000; display:none; justify-content:center; align-items:center; flex-direction: column;} #reference-modal img { max-width:95%; max-height:80%; border: 5px solid #fff; box-shadow: 0 10px 25px rgba(0,0,0,0.2); } #reference-modal button { margin-top: 20px; background: #333; color: #fff; border: none; padding: 10px 20px; font-weight: bold; border-radius: 20px; box-shadow: 0 3px 6px rgba(0,0,0,0.2); }
+        .bottom-toolbar { position: fixed; bottom: 0; left: 0; width: 100%; background: #5d4037; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); z-index: 100; } .tool-group { display: flex; gap: 10px; } .tool-btn { width: 45px; height: 45px; border-radius: 50%; border: 2px solid #fff; font-size: 12px; font-family: inherit; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s; } .tool-btn.selected { transform: scale(1.2); border-color: #fdd835; z-index: 10; } #btn-thin { background: #2c2c2c; color: white; } #btn-thick { background: #2c2c2c; color: white; border-width: 4px; } #btn-eraser { background: #fff; color: #333; border: 2px solid #ccc; } .submit-btn { background: #e53935; color: white; padding: 10px 20px; border-radius: 20px; border: none; font-family: inherit; font-weight: bold; box-shadow: 0 3px 0 #b71c1c; } .submit-btn:active { transform: translateY(3px); box-shadow: none; } .waiting-msg { text-align: center; margin-top: 20px; font-size: 24px; color: #4e342e; font-weight: bold; } .gallery-scroll { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-content: start; } .gallery-scroll img { width: 100%; aspect-ratio: 1; object-fit: cover; background: #fff; border: 1px solid #ccc; box-shadow: 1px 1px 3px rgba(0,0,0,0.1); } .fusen-badge { position:absolute; top:2px; right:2px; background:#e91e63; color:#fff; font-size:10px; padding:2px 5px; border-radius:10px; box-shadow:1px 1px 2px rgba(0,0,0,0.3); } .invite-url-box { background: #fff; font-size: 10px; padding: 5px; border: 1px solid #ccc; width: 90%; margin: 5px auto; display: block; } .secondary-btn { background: #fff; border: 1px solid #006940; color: #006940; padding: 5px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; font-family: inherit; } #debug-panel { position: fixed; top: 0; right: 0; background: rgba(0,0,0,0.5); color: #fff; font-size: 9px; padding: 2px; pointer-events: none; z-index: 9999; } .empty-msg { text-align: center; color: #fff; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; } #grad-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px; overflow-y: auto; height: 100%; } .grad-item { background: #fff; padding: 5px; border: 1px solid #ccc; text-align: center; border-radius: 4px; } .grad-item img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; } .grad-item button { margin-top: 5px; background: #ff9800; color: #fff; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; } #cm-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; color: #fff; z-index: 9999; } #coloring-container { flex: 1; margin: 15px; position: relative; background: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); overflow: hidden; } #coloring-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 5; } #line-art-overlay { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 10; pointer-events: none; object-fit: contain; } .coloring-toolbar { flex-direction: column; height: auto; padding-bottom: 20px; gap: 15px; } .tool-row { display: flex; gap: 10px; width: 100%; justify-content: center; align-items: center; } .tool-box { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; transition: transform 0.1s; } .tool-box.selected { transform: scale(1.1); } .pencil-icon { width: 14px; height: 30px; background: #ddd; position: relative; transform: rotate(135deg); border: 1px solid rgba(0,0,0,0.2); } .pencil-icon::before { content: ''; position: absolute; bottom: -10px; left: -1px; width: 0; height: 0; border-style: solid; border-width: 10px 7px 0 7px; border-color: #fdd835 transparent transparent transparent; } .pencil-icon::after { content: ''; position: absolute; bottom: -14px; left: 3px; width: 0; height: 0; border-style: solid; border-width: 4px 3px 0 3px; border-color: var(--current-color) transparent transparent transparent; } #tool-marker .pencil-icon { background: #ffeb3b; border-color: #fbc02d; } #tool-crayon .pencil-icon { background: #ff7043; border-color: #d84315; width: 16px; border-radius: 2px; } #tool-crayon .pencil-icon::before { border-width: 8px 8px 0 8px; border-color: var(--current-color) transparent transparent transparent; } #tool-crayon .pencil-icon::after { display: none; } .eraser-icon { width: 25px; height: 35px; background: #fff; border: 1px solid #ccc; position: relative; transform: rotate(15deg); border-radius: 2px; box-shadow: 2px 2px 0 rgba(0,0,0,0.1); } .eraser-icon::before { content: ''; position: absolute; top: 10px; left: -2px; width: 27px; height: 10px; background: #90caf9; border: 1px solid #42a5f5; } input[type=range] { width: 100px; margin: 0 10px; } .size-label { font-size: 10px; color: #fff; text-align: center; } #detail-modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:2000; display:none; justify-content:center; align-items:center; } .detail-card { width:90%; max-width:400px; background:#fff; border-radius:8px; overflow:hidden; padding:10px; position:relative; } .detail-image-box { position:relative; width:100%; aspect-ratio:1; background:#fff; border:1px solid #eee; overflow:hidden; } .detail-image-box img { width:100%; height:100%; object-fit:contain; } #detail-fusen-layer { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; } .fusen-sticker { position:absolute; padding:5px 8px; border-radius:2px; font-size:20px; box-shadow:2px 2px 4px rgba(0,0,0,0.2); transform:translate(-50%, -50%) rotate(-5deg); animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); } .fusen-good { background:#fff9c4; color:#333; } .fusen-fight { background:#ffcdd2; color:#333; } .fusen-suki { background:#e1bee7; color:#333; } @keyframes popIn { from { transform:translate(-50%, -50%) scale(0); } to { transform:translate(-50%, -50%) rotate(-5deg) scale(1); } } .fusen-btn { background:#fff; border:1px solid #ccc; padding:8px 12px; border-radius:20px; cursor:pointer; font-size:12px; } .fusen-btn:hover { background:#f5f5f5; } #name-tag { position:fixed; top:5px; right:5px; background:rgba(0,0,0,0.6); color:#fff; padding:2px 8px; border-radius:10px; font-size:10px; z-index:9000; display:none; }
+
+        /* タイトル画面用スタイル */
+        .title-logo { font-size: 40px; margin: 30px 0; border-bottom: 4px solid #fdd835; display: inline-block; padding: 0 20px; color: #fff; text-shadow: 2px 2px 0 #004d40; }
+        .intro-box {
+            background: rgba(255,255,255,0.9); width: 90%; max-width: 400px; margin: 0 auto 20px auto; 
+            border-radius: 4px; padding: 15px; text-align: left; height: 150px; overflow-y: scroll;
+            font-size: 14px; line-height: 1.6; border: 1px solid #ccc;
+        }
+        .title-menu-btn {
+            width: 80%; max-width: 300px; padding: 15px; margin: 10px auto; font-size: 18px; 
+            border: none; border-radius: 30px; cursor: pointer; font-family: inherit; font-weight: bold;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.2); transition: transform 0.1s;
+        }
+        .title-menu-btn:active { transform: translateY(4px); box-shadow: none; }
+        .btn-continue { background: #ff9800; color: #fff; }
+        .btn-create { background: #009688; color: #fff; }
+        .btn-join { background: #fff; color: #009688; border: 2px solid #009688; }
+        .btn-howto { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.5); font-size: 14px; padding: 8px; width: auto; display: inline-block; }
+        .version-tag { position: fixed; bottom: 5px; right: 5px; color: rgba(255,255,255,0.5); font-size: 10px; }
+        
+        #howto-modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:4000; display:none; justify-content:center; align-items:center; }
+        .howto-content { background:#fff; width:90%; max-width:500px; max-height:80%; overflow-y:auto; padding:20px; border-radius:10px; }
+    </style>
+</head>
+<body>
+    <div id="debug-panel">ID:<span id="debug-my-id"></span></div>
+    <div id="name-tag"></div>
+
+    <div id="detail-modal" onclick="if(event.target===this) closeDetailModal()"><div class="detail-card"><button onclick="closeDetailModal()" style="position:absolute; top:5px; right:5px; z-index:10; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:24px; height:24px;">×</button><div class="detail-image-box"><img id="detail-img" src=""><div id="detail-fusen-layer"></div></div><div id="detail-actions" style="margin-top:10px; text-align:center;"></div></div></div>
+    <div id="reference-modal" onclick="if(event.target===this) closeReferenceModal()"><img id="ref-modal-img" src=""><button onclick="closeReferenceModal()">閉じる</button></div>
+    
+    <div id="howto-modal" onclick="if(event.target===this) closeHowTo()">
+        <div class="howto-content">
+            <h2 style="border-bottom:2px solid #009688; color:#009688;">📖 遊び方</h2>
+            <p><strong>1. 部屋を作る</strong><br>好きな「クラス名（合言葉）」を決めて部屋を作ります。</p>
+            <p><strong>2. 招待する</strong><br>「招待状コピー」ボタンを押して、URLを友達に送ります。</p>
+            <p><strong>3. 描く</strong><br>自分の番が来たらキャンバスに絵を描いて「回す」ボタンを押すだけ！</p>
+            <p><strong>4. 見る</strong><br>待機中はギャラリーで過去の絵を見たり、描いている人を応援したりできます。</p>
+            <p style="text-align:center; margin-top:20px;"><button onclick="closeHowTo()" class="title-menu-btn btn-create" style="width:auto; font-size:14px; padding:10px 30px;">閉じる</button></p>
+        </div>
+    </div>
+
+    <div id="cm-overlay"><h2>CM再生中...</h2><p>（3秒お待ちください）</p><div style="font-size: 30px; margin-top: 20px;">📺</div></div>
+
+    <div id="screen-title" class="screen active" style="display:flex; text-align:center;">
+        <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+            <h1 class="title-logo">ノートの切れ端</h1>
+            
+            <div class="intro-box">
+                <b>✨ このゲームのポイント</b><br>
+                ⏰ <b>集まらなくても大丈夫</b><br>
+                持ち時間は一人たっぷり24時間。みんなで時間を合わせてワイワイ遊ぶのも、隙間時間に「置き手紙」感覚で回すのも自由です。<br><br>
+                🤝 <b>緩やかなつながり</b><br>
+                順番が来たらあなたのノートが開きます。前の人の絵を見て、何を描いたか予想して次に繋げましょう。<br><br>
+                🎉 <b>待っている間も楽しい</b><br>
+                友達が描いている最中に居合わせたら、こっそり「付箋」を貼って応援できます（👍いいね、🔥ファイト、🥰すき）。<br><br>
+                🎓 <b>目指せ「卒業」！</b><br>
+                30ページ描ききるとゲームクリア。ご褒美に、これまでの絵を使った「塗り絵モード」が解禁されます。
+            </div>
+
+            <button id="title-btn-continue" class="title-menu-btn btn-continue" style="display:none;">👟 続きから遊ぶ</button>
+            <button onclick="goToLobby('create')" class="title-menu-btn btn-create">🏫 新しいグループを作る</button>
+            <button onclick="goToLobby('join')" class="title-menu-btn btn-join">🚪 グループに参加する</button>
+            <div style="margin-top:15px;">
+                <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
+            </div>
+        </div>
+        <div class="version-tag">v23.0</div>
+    </div>
+
+    <div id="screen-getabako" class="screen">
+        <div style="text-align:center; padding-top:40px; color:#fff;">
+            <h1 style="margin:0; font-size:36px; border-bottom:4px solid #fdd835; display:inline-block; padding:0 10px;">ノートの切れ端</h1>
+            <div style="background:#fff; margin:20px; padding:30px; border-radius:10px; color:#333; box-shadow:3px 3px 0 rgba(0,0,0,0.2);">
+                <div style="font-size:40px; margin-bottom:10px;">👟</div>
+                <p id="getabako-msg" style="font-size:16px; margin-bottom:20px;">...</p>
+                <button id="btn-getabako-continue" class="action-btn">👟 続きから遊ぶ</button>
+                <button id="btn-getabako-ignore" class="action-btn" style="background:#009688; border:1px solid #00796b; display:none;">👟 招待を破棄してロビーへ</button>
+                <button id="btn-getabako-new" class="action-btn" style="background:#e0e0e0; color:#555; margin-top:15px; font-size:14px; box-shadow:none; border:1px solid #ccc;">✨ 新しい上履きをおろす（新規）</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-lobby" class="screen">
+        <div style="text-align:center; padding-top:20px; color:#fff;">
+            <button onclick="window.showScreen('screen-title')" style="background:transparent; border:1px solid rgba(255,255,255,0.5); color:#fff; border-radius:20px; padding:5px 15px; margin-bottom:10px;">↩ タイトルに戻る</button>
+        </div>
+        <div class="lobby-card" id="create-section"><h3>グループを作る</h3><input type="text" id="new-room-name" placeholder="クラス名（例: 2-C）"><input type="text" id="new-pass" placeholder="合言葉"><input type="text" id="new-host-name" placeholder="あなたの名前"><button onclick="createRoom()" class="action-btn">ノートを開く</button></div>
+        <div class="lobby-card" id="join-section"><h3>グループに入る</h3><input type="text" id="join-room-name" placeholder="クラス名"><input type="text" id="join-pass" placeholder="合言葉"><input type="text" id="join-name" placeholder="あなたの名前"><button onclick="joinRoom()" class="action-btn">教室に入る</button></div>
+        <div style="text-align:center; margin-top:20px;"><button onclick="resetIdentity()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; padding:5px 10px; border-radius:15px; font-size:10px;">🏫 転校（IDリセット）</button></div>
+    </div>
+    
+    <div id="screen-waiting" class="screen">
+        <div class="ad-space">広告スペース</div>
+        <div class="notebook-header"><div class="header-title-box"><span class="room-name-label"></span></div><ul id="member-list"></ul><div id="header-sub-msg" style="font-size:12px;"></div>
+        <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
+        <button id="btn-disband" onclick="disbandRoom()" style="margin-top:10px; background:#d32f2f; border:1px solid #b71c1c; color:#fff; padding:5px 15px; border-radius:20px; font-size:12px; cursor:pointer; display:none; width:100%;">💣 教室を解散する</button>
+        <div id="cheer-section" style="margin-top:10px; display:none; background:rgba(255,255,255,0.2); padding:5px; border-radius:5px;">
+            <p style="font-size:12px; margin:0 0 5px 0;">🖌️ <span id="cheer-target-name"></span> さんを応援しよう！</p>
+            <div style="display:flex; justify-content:center; gap:10px;">
+                <button onclick="sendCheer('good')" class="fusen-btn">👍 いいね</button>
+                <button onclick="sendCheer('fight')" class="fusen-btn">🔥 ファイト</button>
+                <button onclick="sendCheer('suki')" class="fusen-btn">🥰 すき</button>
+            </div>
+        </div>
+        <button id="reset-room-btn" onclick="resetRoomHistory()" style="margin-top:5px; background:#ef5350; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:5px 10px; cursor:pointer; display:none;">🧹 黒板消し（履歴リセット）</button>
+        <button onclick="resumeDrawing()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:2px 5px; cursor:pointer;" ontouchstart="resumeDrawing()">⚠️ 強制描画</button>
+        <button onclick="leaveRoom()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button>
+        </div>
+        <div class="waiting-msg"><div id="turn-indicator">あなたの番！</div><button id="continue-btn" onclick="resumeDrawing()" ontouchstart="resumeDrawing()" class="action-btn" style="width:auto; padding:10px 30px; display:none; margin:10px auto;">✏️ 続けて描く</button></div>
+        <div style="padding:10px; font-size:12px; display:flex; justify-content:space-between; align-items:end;"><span style="background:rgba(255,255,255,0.8); padding:2px 5px; border-radius:4px;">これまでの落書き (<span id="history-count">0</span>)</span><button onclick="copyInvite()" class="secondary-btn">🔗 招待状コピー</button></div>
+        <input type="text" class="invite-url-box" readonly onclick="this.select()">
+        <div id="gallery" class="gallery-scroll"></div>
+    </div>
+    <div id="screen-game" class="screen">
+        <div class="ad-space">広告スペース</div>
+        <div class="notebook-header" style="padding:5px; margin:5px; display:flex; justify-content:space-between; align-items:center;"><span class="room-name-label" style="font-size:18px;"></span><div id="timer-pencil-container" class="timer-pencil-container" style="max-width:150px;"><div class="timer-bar-fill"></div></div>
+        <div style="display:flex; gap:5px;">
+            <button onclick="copyInvite()" style="background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px;">🔗招待</button>
+            <button id="btn-game-disband" onclick="disbandRoom()" style="background:#d32f2f; border:1px solid #b71c1c; color:#fff; border-radius:4px; font-size:10px; display:none;">💣解散</button>
+        </div>
+        </div>
+        <div class="canvas-area" id="canvas-area">
+            <div class="notebook-paper">
+                <div id="prev-history-container"><div id="prev-history-bar" style="display:flex; gap:5px;"></div></div>
+                <div id="prev-img-container" style="display:none;"><span style="font-size:10px; color:#666;">前の絵</span><img id="prev-img" src=""></div>
+                <canvas id="canvas"></canvas>
+                <div id="live-fusen-layer"></div>
+            </div>
+        </div>
+        <div class="bottom-toolbar"><div class="tool-group"><button id="btn-thin" class="tool-btn selected" onclick="setPen('thin')">細</button><button id="btn-thick" class="tool-btn" onclick="setPen('thick')">太</button><button id="btn-eraser" class="tool-btn" onclick="setPen('eraser')">消</button></div><button onclick="submitArt()" class="submit-btn">次の人へ回す</button></div>
+    </div>
+    <div id="screen-graduation" class="screen">
+        <div class="notebook-header"><div class="header-title-box">🎓 卒業制作</div><div style="font-size:12px; margin-top:5px;">好きな絵を塗って持って帰ろう！</div><div style="font-size:12px; color:#fff176;">残りチケット: <span id="coloring-ticket-count">1</span>枚</div><button onclick="leaveRoom()" style="margin-top:10px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button></div>
+        <div id="grad-grid"></div>
+        <div style="padding: 20px; text-align: center;"><div id="host-delete-area" style="display:none; margin-top:20px; padding-top:20px; border-top:1px solid rgba(0,0,0,0.1);"><p style="font-size:12px; color:#d32f2f;">※日直専用</p><button onclick="deleteRoomData()" style="background:#d32f2f; color:#fff; border:none; padding:10px 20px; border-radius:4px;">🗑 教室を片付ける（全削除）</button></div></div>
+    </div>
+    <div id="screen-coloring" class="screen">
+        <div class="notebook-header" style="padding:5px; display:flex; justify-content:space-between; align-items:center;"><span>🎨 塗り絵モード</span><button onclick="closeColoring()" style="background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px;">戻る</button></div>
+        <div id="coloring-container"><canvas id="coloring-canvas"></canvas><img id="line-art-overlay" src=""></div>
+        <div class="bottom-toolbar coloring-toolbar">
+            <div class="tool-row"><input type="color" id="color-picker" value="#ffeb3b" onchange="updateColor()" style="width:40px; height:40px; padding:0; border:none; border-radius:50%; overflow:hidden;"><div style="display:flex; flex-direction:column; align-items:center;"><span class="size-label">太さ</span><input type="range" id="pen-size-slider" min="1" max="50" step="1" oninput="updateSize()"></div></div>
+            <div class="tool-row"><div id="tool-marker" class="tool-box selected" onclick="setMarker('marker')"><div class="pencil-icon"></div></div><div id="tool-crayon" class="tool-box" onclick="setMarker('crayon')"><div class="pencil-icon"></div></div><div id="tool-eraser" class="tool-box" onclick="setMarker('eraser')"><div class="eraser-icon"></div></div><button onclick="saveColoring()" class="submit-btn" style="width:auto; margin-left:10px; background:#03a9f4; box-shadow:0 3px 0 #0277bd;">完成!</button></div>
+        </div>
+    </div>
+</body>
+</html>
