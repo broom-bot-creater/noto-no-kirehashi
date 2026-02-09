@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1519394255615630"
+     crossorigin="anonymous"></script>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ノートの切れ端 v23.0</title>
+    <title>ノートの切れ端 v23.1</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,13 +34,13 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         
-        const COLLECTION_NAME = "rooms_v23_0_title"; // バージョン更新
+        const COLLECTION_NAME = "rooms_v23_0_title"; 
         const MAX_HISTORY = 30; 
         const TIME_LIMIT_MS = 24 * 60 * 60 * 1000; 
         const MAX_FUSEN_PER_TURN = 10; 
 
         const STORAGE = {
-            ID: 'noto_user_id_v22', // ID系はv22と互換性維持
+            ID: 'noto_user_id_v22', 
             NAME: 'noto_user_name_v22',
             ROOM: 'noto_room_name_v22',
             PASS: 'noto_room_pass_v22',
@@ -61,16 +64,11 @@
             tickets: 1
         };
 
-        // --------------------------------------------------
-        //  初期化
-        // --------------------------------------------------
-
         window.addEventListener('DOMContentLoaded', initApp);
 
         function initApp() {
             window.resumeDrawing = resumeDrawing; 
 
-            // URLパラメータチェック（招待かどうか）
             const urlParams = new URLSearchParams(window.location.search);
             const rawGroup = urlParams.get('group');
             const rawPass = urlParams.get('pass');
@@ -81,15 +79,12 @@
             const savedName = localStorage.getItem(STORAGE.NAME);
             const savedRoom = localStorage.getItem(STORAGE.ROOM);
 
-            // 招待状を持っている場合は、直接下駄箱（参加画面）へ
             if (inviteGroup) {
-                // IDがなければ新規作成
                 if (!savedId) createNewIdentity();
                 else { State.myId = savedId; State.myName = savedName; }
                 
-                setupLobbyForInvite(inviteGroup, invitePass); // フォームに入力しておく
+                setupLobbyForInvite(inviteGroup, invitePass); 
                 
-                // 下駄箱画面へ
                 window.showScreen('screen-getabako');
                 const msgEl = document.getElementById('getabako-msg');
                 const btnContinue = document.getElementById('btn-getabako-continue');
@@ -99,28 +94,25 @@
                 msgEl.innerHTML = `招待状が届いています。<br><strong>${State.myName || '新しい生徒'}</strong> さんとして参加しますか？`;
                 btnContinue.innerText = `👟 教室「${inviteGroup}」に入る`;
                 btnContinue.onclick = () => {
-                    if(!State.myName) State.myName = "名無し"; // 名前がない場合のフォールバック
+                    if(!State.myName) State.myName = "名無し"; 
                     joinRoomLogic(inviteGroup, invitePass, State.myName, true);
                 };
 
                 btnIgnore.style.display = "block";
                 btnIgnore.onclick = () => {
                     window.history.replaceState(null, null, window.location.pathname);
-                    window.showScreen('screen-title'); // タイトルへ戻る
+                    window.showScreen('screen-title'); 
                 };
                 
-                // 新規ボタンは隠す（ややこしいのでタイトルへ誘導）
                 btnNew.style.display = 'none';
                 return;
             }
 
-            // 招待がない場合はタイトル画面へ
             if (savedId) { State.myId = savedId; State.myName = savedName; }
             setupTitleScreen();
             window.showScreen('screen-title');
         }
 
-        // タイトル画面のセットアップ
         function setupTitleScreen() {
             const savedRoom = localStorage.getItem(STORAGE.ROOM);
             const savedName = localStorage.getItem(STORAGE.NAME);
@@ -171,10 +163,6 @@
             else { el.style.display = 'none'; }
         }
 
-        // --------------------------------------------------
-        //  画面遷移
-        // --------------------------------------------------
-
         window.showScreen = (id) => {
             document.querySelectorAll('.screen').forEach(s => {
                 s.classList.remove('active');
@@ -185,7 +173,6 @@
                 target.classList.add('active');
                 target.style.display = 'flex';
             }
-            // 背景切り替え
             if (id === 'screen-game' || id === 'screen-coloring') document.body.className = 'bg-desk';
             else document.body.className = 'bg-green';
             
@@ -193,10 +180,8 @@
             if(id === 'screen-coloring') setTimeout(() => initColoringCanvas(), 100);
         };
 
-        // ロビーへの遷移（モード指定）
         window.goToLobby = (mode) => {
             window.showScreen('screen-lobby');
-            // 一旦ハイライトを消す
             document.getElementById('create-section').classList.remove('highlight');
             document.getElementById('join-section').classList.remove('highlight');
 
@@ -209,7 +194,6 @@
             }
         };
 
-        // 遊び方モーダル
         window.showHowTo = () => { document.getElementById('howto-modal').style.display = 'flex'; };
         window.closeHowTo = () => { document.getElementById('howto-modal').style.display = 'none'; };
 
@@ -218,17 +202,12 @@
             return `${baseUrl}?group=${encodeURIComponent(State.roomName)}&pass=${encodeURIComponent(State.roomData.password)}`;
         }
 
-        // --------------------------------------------------
-        //  入室・作成
-        // --------------------------------------------------
-
         window.createRoom = async () => {
             const roomName = document.getElementById('new-room-name').value.trim();
             const pass = document.getElementById('new-pass').value.trim();
             const hostName = document.getElementById('new-host-name').value.trim();
             if(!roomName || !pass || !hostName) return alert("全部入力してね！");
 
-            // IDがない場合はここで作成
             if (!State.myId) createNewIdentity();
 
             State.myName = hostName; 
@@ -271,7 +250,6 @@
             const guestName = document.getElementById('join-name').value.trim();
             if(!roomName || !pass || !guestName) return alert("全部入力してね！");
             
-            // IDがない場合はここで作成
             if (!State.myId) createNewIdentity();
 
             State.myName = guestName; 
@@ -336,10 +314,6 @@
                 updateUI();
             });
         }
-
-        // --------------------------------------------------
-        //  UI更新
-        // --------------------------------------------------
 
         function updateUI() {
             if (!State.roomData) return;
@@ -555,9 +529,6 @@
             } catch(e) { alert(e.message); }
         }
 
-        // --------------------------------------------------
-        //  キャンバス
-        // --------------------------------------------------
         let ctx, drawing = false; 
         const PENCIL_COLOR = "#555555"; 
 
@@ -655,7 +626,6 @@
             } catch (e) { alert("送信エラー: " + e.message); State.isProcessing = false; updateUI(); }
         };
 
-        // --- その他機能 ---
         window.leaveRoom = async () => {
             if(!confirm("本当に転校（退出）しますか？")) return;
             if (State.roomData && State.roomData.players) {
@@ -740,7 +710,11 @@
         }
         @keyframes dust { 0% { background-position: 0 0; } 100% { background-position: 100px 100px; } }
 
-        .bg-desk { background-color: #cba67b; background-image: repeating-linear-gradient(115deg, transparent, transparent 20px, rgba(90, 60, 30, 0.1) 21px, transparent 22px), repeating-linear-gradient(24deg, transparent, transparent 35px, rgba(90, 60, 30, 0.08) 36px, transparent 37px), radial-gradient(ellipse at 20% 40%, rgba(0,0,0,0.1) 0%, transparent 50%), radial-gradient(ellipse at 80% 70%, rgba(139, 100, 60, 0.15) 0%, transparent 60%), repeating-linear-gradient(0deg, rgba(100, 70, 40, 0.05) 0px, rgba(100, 70, 40, 0.05) 1px, transparent 1px, transparent 3px); background-position: 0 0, 50px 30px, 0 0, 0 0, 0 0; } .screen { display: none; flex-direction: column; width: 100%; height: 100%; padding-bottom: 80px; overflow-y: auto; -webkit-overflow-scrolling: touch; } .active { display: flex; } #screen-game, #screen-coloring { overflow: hidden; touch-action: none; } .ad-space { background: #fff9c4; height: 30px; width: 100%; color: #888; font-size: 10px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #ddd; } .notebook-header { background-color: #006940; border: 4px solid #fdd835; border-radius: 4px; margin: 10px; padding: 10px; text-align: center; color: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.2); position: relative; } .header-title-box { border: 2px solid #fdd835; padding: 5px 10px; display: inline-block; margin-bottom: 5px; background: rgba(0,0,0,0.1); border-radius: 20px; } .room-name-label { margin: 0; font-size: 22px; letter-spacing: 2px; font-weight: bold; color: #fffde7; } 
+        .bg-desk { background-color: #cba67b; background-image: repeating-linear-gradient(115deg, transparent, transparent 20px, rgba(90, 60, 30, 0.1) 21px, transparent 22px), repeating-linear-gradient(24deg, transparent, transparent 35px, rgba(90, 60, 30, 0.08) 36px, transparent 37px), radial-gradient(ellipse at 20% 40%, rgba(0,0,0,0.1) 0%, transparent 50%), radial-gradient(ellipse at 80% 70%, rgba(139, 100, 60, 0.15) 0%, transparent 60%), repeating-linear-gradient(0deg, rgba(100, 70, 40, 0.05) 0px, rgba(100, 70, 40, 0.05) 1px, transparent 1px, transparent 3px); background-position: 0 0, 50px 30px, 0 0, 0 0, 0 0; } .screen { display: none; flex-direction: column; width: 100%; height: 100%; padding-bottom: 80px; overflow-y: auto; -webkit-overflow-scrolling: touch; } .active { display: flex; } #screen-game, #screen-coloring { overflow: hidden; touch-action: none; } 
+        /* 広告スペース（自動リサイズ対応） */
+        .ad-space { background: #fff9c4; min-height: 50px; width: 100%; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #ddd; overflow: hidden; } 
+        
+        .notebook-header { background-color: #006940; border: 4px solid #fdd835; border-radius: 4px; margin: 10px; padding: 10px; text-align: center; color: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.2); position: relative; } .header-title-box { border: 2px solid #fdd835; padding: 5px 10px; display: inline-block; margin-bottom: 5px; background: rgba(0,0,0,0.1); border-radius: 20px; } .room-name-label { margin: 0; font-size: 22px; letter-spacing: 2px; font-weight: bold; color: #fffde7; } 
         /* タイマーバー共通クラス */
         .timer-pencil-container { flex: 1; max-width: 200px; height: 14px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.6); border-radius: 7px; margin: 0 10px; overflow: visible; position: relative; z-index: 50; display: inline-block; width: 100%; } 
         .timer-bar-fill { height: 100%; width: 100%; background: #81c784; border-radius: 6px; position: relative; transition: width 0.5s linear, background 1s; } 
@@ -821,7 +795,7 @@
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v23.0</div>
+        <div class="version-tag">v23.1</div>
     </div>
 
     <div id="screen-getabako" class="screen">
@@ -847,7 +821,17 @@
     </div>
     
     <div id="screen-waiting" class="screen">
-        <div class="ad-space">広告スペース</div>
+        <div class="ad-space">
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-1519394255615630"
+                 data-ad-slot="5159622327"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+            <script>
+                 (adsbygoogle = window.adsbygoogle || []).push({});
+            </script>
+        </div>
         <div class="notebook-header"><div class="header-title-box"><span class="room-name-label"></span></div><ul id="member-list"></ul><div id="header-sub-msg" style="font-size:12px;"></div>
         <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
         <button id="btn-disband" onclick="disbandRoom()" style="margin-top:10px; background:#d32f2f; border:1px solid #b71c1c; color:#fff; padding:5px 15px; border-radius:20px; font-size:12px; cursor:pointer; display:none; width:100%;">💣 教室を解散する</button>
@@ -869,7 +853,17 @@
         <div id="gallery" class="gallery-scroll"></div>
     </div>
     <div id="screen-game" class="screen">
-        <div class="ad-space">広告スペース</div>
+        <div class="ad-space">
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-1519394255615630"
+                 data-ad-slot="5159622327"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+            <script>
+                 (adsbygoogle = window.adsbygoogle || []).push({});
+            </script>
+        </div>
         <div class="notebook-header" style="padding:5px; margin:5px; display:flex; justify-content:space-between; align-items:center;"><span class="room-name-label" style="font-size:18px;"></span><div id="timer-pencil-container" class="timer-pencil-container" style="max-width:150px;"><div class="timer-bar-fill"></div></div>
         <div style="display:flex; gap:5px;">
             <button onclick="copyInvite()" style="background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px;">🔗招待</button>
