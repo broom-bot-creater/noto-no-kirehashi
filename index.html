@@ -6,14 +6,14 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ノートの切れ端 v23.2</title>
+    <title>ノートの切れ端 v23.3</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
 
     <script>
-        // window.onerror = ... (削除)
+        // エラー表示はプレイヤーに見せない
     </script>
 
     <script type="module">
@@ -38,6 +38,9 @@
         const MAX_HISTORY = 30; 
         const TIME_LIMIT_MS = 24 * 60 * 60 * 1000; 
         const MAX_FUSEN_PER_TURN = 10; 
+        
+        // ★追加：定員設定
+        const MAX_PLAYERS = 5;
 
         const STORAGE = {
             ID: 'noto_user_id_v22', 
@@ -163,7 +166,6 @@
             else { el.style.display = 'none'; }
         }
 
-        // --- 修正点2：画面表示時に広告を読み込むロジックに変更 ---
         window.showScreen = (id) => {
             document.querySelectorAll('.screen').forEach(s => {
                 s.classList.remove('active');
@@ -174,11 +176,9 @@
                 target.classList.add('active');
                 target.style.display = 'flex';
                 
-                // ★ここで広告を呼び出す（画面が見えてから！）
                 try {
                     const ads = target.querySelectorAll('.adsbygoogle');
                     ads.forEach(ad => {
-                        // まだロードされていない(data-ad-statusがない)場合のみpushする
                         if (!ad.getAttribute('data-adsbygoogle-status')) {
                             (window.adsbygoogle = window.adsbygoogle || []).push({});
                         }
@@ -295,6 +295,13 @@
                 let players = rDoc.data().players || [];
                 const existingIndex = players.findIndex(p => p.id === State.myId);
                 
+                // ★修正1：定員チェック（既存ユーザーはOK）
+                if (existingIndex === -1 && players.length >= MAX_PLAYERS) {
+                    alert(`ごめんね！この教室は満員（${MAX_PLAYERS}人）です。`);
+                    if(isAuto) window.showScreen('screen-title');
+                    return;
+                }
+
                 if (existingIndex !== -1) {
                     players[existingIndex].name = guestName;
                 } else {
@@ -356,7 +363,16 @@
             State.lastTurnId = currentTurnId;
 
             document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName);
-            document.getElementById('header-sub-msg').innerText = `今は ${currentPlayerObj ? currentPlayerObj.name : "誰か"} さんの番`;
+            
+            // ★修正2：ぼっち判定とメッセージ
+            const isAlone = players.length < 2;
+            let subMsg = "";
+            if (isAlone) {
+                subMsg = "👥 友達を待っています...";
+            } else {
+                subMsg = `今は ${currentPlayerObj ? currentPlayerObj.name : "誰か"} さんの番`;
+            }
+            document.getElementById('header-sub-msg').innerText = subMsg;
 
             checkTimeLimit();
             if (!State.timer) State.timer = setInterval(checkTimeLimit, 1000 * 60);
@@ -391,7 +407,10 @@
 
             const myIdx = players.findIndex(p => p.id === State.myId);
             let waitMsg = "";
-            if (myIdx !== -1) {
+            
+            if (isAlone) {
+                waitMsg = "👥 友達を待っています（2人から開始）";
+            } else if (myIdx !== -1) {
                 let waitCount = (myIdx - turnIdx + players.length) % players.length;
                 waitMsg = (waitCount === 0) ? "あなたの番！" : `あと ${waitCount} 人`;
             }
@@ -399,11 +418,12 @@
             document.querySelectorAll('.invite-url-box').forEach(el => el.value = getInviteUrl());
 
             const continueBtn = document.getElementById('continue-btn');
-            if (isMyTurn && State.forceGallery) { continueBtn.style.display = 'block'; } 
+            // ぼっちの時は「続けて描く」も出さない
+            if (isMyTurn && State.forceGallery && !isAlone) { continueBtn.style.display = 'block'; } 
             else { continueBtn.style.display = 'none'; }
 
             const cheerSection = document.getElementById('cheer-section');
-            if (!isMyTurn && !State.forceGallery && currentTurnId !== "???") {
+            if (!isMyTurn && !State.forceGallery && currentTurnId !== "???" && !isAlone) {
                 cheerSection.style.display = 'block';
                 document.getElementById('cheer-target-name').innerText = currentPlayerObj ? currentPlayerObj.name : "友達";
             } else {
@@ -433,7 +453,8 @@
             }
             document.getElementById('history-count').innerText = `${history.length}/${MAX_HISTORY}`;
 
-            if (isMyTurn && !State.isProcessing && !State.forceGallery) {
+            // ★修正2：ぼっちならゲーム画面に行かせない
+            if (isMyTurn && !State.isProcessing && !State.forceGallery && !isAlone) {
                 window.showScreen('screen-game');
                 
                 renderLiveFusens(State.roomData.liveFusens || []);
@@ -809,7 +830,7 @@
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v23.2</div>
+        <div class="version-tag">v23.3</div>
     </div>
 
     <div id="screen-getabako" class="screen">
