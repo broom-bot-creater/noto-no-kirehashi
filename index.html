@@ -6,14 +6,14 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ノートの切れ端 v23.1</title>
+    <title>ノートの切れ端 v23.2</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
 
     <script>
-        window.onerror = function(msg, src, line) { alert("エラー: " + msg + "\n行: " + line); };
+        // window.onerror = ... (削除)
     </script>
 
     <script type="module">
@@ -163,6 +163,7 @@
             else { el.style.display = 'none'; }
         }
 
+        // --- 修正点2：画面表示時に広告を読み込むロジックに変更 ---
         window.showScreen = (id) => {
             document.querySelectorAll('.screen').forEach(s => {
                 s.classList.remove('active');
@@ -172,6 +173,19 @@
             if (target) {
                 target.classList.add('active');
                 target.style.display = 'flex';
+                
+                // ★ここで広告を呼び出す（画面が見えてから！）
+                try {
+                    const ads = target.querySelectorAll('.adsbygoogle');
+                    ads.forEach(ad => {
+                        // まだロードされていない(data-ad-statusがない)場合のみpushする
+                        if (!ad.getAttribute('data-adsbygoogle-status')) {
+                            (window.adsbygoogle = window.adsbygoogle || []).push({});
+                        }
+                    });
+                } catch(e) {
+                    console.log("広告ロード待機中");
+                }
             }
             if (id === 'screen-game' || id === 'screen-coloring') document.body.className = 'bg-desk';
             else document.body.className = 'bg-green';
@@ -795,7 +809,7 @@
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v23.1</div>
+        <div class="version-tag">v23.2</div>
     </div>
 
     <div id="screen-getabako" class="screen">
@@ -828,9 +842,6 @@
                  data-ad-slot="5159622327"
                  data-ad-format="auto"
                  data-full-width-responsive="true"></ins>
-            <script>
-                 (adsbygoogle = window.adsbygoogle || []).push({});
-            </script>
         </div>
         <div class="notebook-header"><div class="header-title-box"><span class="room-name-label"></span></div><ul id="member-list"></ul><div id="header-sub-msg" style="font-size:12px;"></div>
         <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
@@ -860,9 +871,6 @@
                  data-ad-slot="5159622327"
                  data-ad-format="auto"
                  data-full-width-responsive="true"></ins>
-            <script>
-                 (adsbygoogle = window.adsbygoogle || []).push({});
-            </script>
         </div>
         <div class="notebook-header" style="padding:5px; margin:5px; display:flex; justify-content:space-between; align-items:center;"><span class="room-name-label" style="font-size:18px;"></span><div id="timer-pencil-container" class="timer-pencil-container" style="max-width:150px;"><div class="timer-bar-fill"></div></div>
         <div style="display:flex; gap:5px;">
