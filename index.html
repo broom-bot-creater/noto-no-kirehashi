@@ -6,21 +6,21 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ノートの切れ端 v23.3</title>
+    <title>ノートの切れ端 v23.5</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
 
     <script>
-        // エラー表示はプレイヤーに見せない
+        // エラー表示なし
     </script>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, deleteDoc, addDoc, collection, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- 1:1000025799003:web:1938601e7e65c5d62f427e ---
+        // --- ★ご自身の「合鍵」をここに貼り付けてください★ ---
         const firebaseConfig = {
             apiKey: "あなたのAPIキー",
             authDomain: "noto-no-kirehashi.firebaseapp.com",
@@ -38,8 +38,6 @@
         const MAX_HISTORY = 30; 
         const TIME_LIMIT_MS = 24 * 60 * 60 * 1000; 
         const MAX_FUSEN_PER_TURN = 10; 
-        
-        // ★追加：定員設定
         const MAX_PLAYERS = 5;
 
         const STORAGE = {
@@ -82,22 +80,31 @@
             const savedName = localStorage.getItem(STORAGE.NAME);
             const savedRoom = localStorage.getItem(STORAGE.ROOM);
 
+            // ★修正：招待状が届いた時の処理
             if (inviteGroup) {
                 if (!savedId) createNewIdentity();
                 else { State.myId = savedId; State.myName = savedName; }
                 
-                setupLobbyForInvite(inviteGroup, invitePass); 
-                
                 window.showScreen('screen-getabako');
                 const msgEl = document.getElementById('getabako-msg');
+                const inputName = document.getElementById('getabako-name');
                 const btnContinue = document.getElementById('btn-getabako-continue');
                 const btnIgnore = document.getElementById('btn-getabako-ignore');
-                const btnNew = document.getElementById('btn-getabako-new');
 
-                msgEl.innerHTML = `招待状が届いています。<br><strong>${State.myName || '新しい生徒'}</strong> さんとして参加しますか？`;
-                btnContinue.innerText = `👟 教室「${inviteGroup}」に入る`;
+                // 保存された名前があれば入れておく
+                if (State.myName) inputName.value = State.myName;
+
+                msgEl.innerHTML = `招待状が届いています。<br>教室「<strong>${inviteGroup}</strong>」に入りますか？`;
+                btnContinue.innerText = `👟 入室する`;
+                
                 btnContinue.onclick = () => {
-                    if(!State.myName) State.myName = "名無し"; 
+                    const name = inputName.value.trim();
+                    if (!name) return alert("名前を入れてね！");
+                    
+                    State.myName = name;
+                    localStorage.setItem(STORAGE.NAME, State.myName); // 名前を保存
+                    updateNameTag();
+                    
                     joinRoomLogic(inviteGroup, invitePass, State.myName, true);
                 };
 
@@ -107,7 +114,6 @@
                     window.showScreen('screen-title'); 
                 };
                 
-                btnNew.style.display = 'none';
                 return;
             }
 
@@ -150,11 +156,6 @@
             updateNameTag();
         }
 
-        function setupLobbyForInvite(group, pass) {
-            document.getElementById('join-room-name').value = group;
-            document.getElementById('join-pass').value = pass;
-        }
-
         function resetLocalData() {
             localStorage.clear();
             State.myId = null; State.myName = null;
@@ -194,18 +195,8 @@
             if(id === 'screen-coloring') setTimeout(() => initColoringCanvas(), 100);
         };
 
-        window.goToLobby = (mode) => {
+        window.goToLobby = () => {
             window.showScreen('screen-lobby');
-            document.getElementById('create-section').classList.remove('highlight');
-            document.getElementById('join-section').classList.remove('highlight');
-
-            if (mode === 'create') {
-                document.getElementById('create-section').classList.add('highlight');
-                document.getElementById('create-section').scrollIntoView({ behavior: 'smooth' });
-            } else {
-                document.getElementById('join-section').classList.add('highlight');
-                document.getElementById('join-section').scrollIntoView({ behavior: 'smooth' });
-            }
         };
 
         window.showHowTo = () => { document.getElementById('howto-modal').style.display = 'flex'; };
@@ -258,20 +249,6 @@
             startListen();
         };
 
-        window.joinRoom = async () => {
-            const roomName = document.getElementById('join-room-name').value.trim();
-            const pass = document.getElementById('join-pass').value.trim();
-            const guestName = document.getElementById('join-name').value.trim();
-            if(!roomName || !pass || !guestName) return alert("全部入力してね！");
-            
-            if (!State.myId) createNewIdentity();
-
-            State.myName = guestName; 
-            localStorage.setItem(STORAGE.NAME, State.myName); 
-            updateNameTag();
-            await joinRoomLogic(roomName, pass, guestName, false);
-        };
-
         async function joinRoomLogic(roomName, pass, guestName, isAuto = false) {
             const docRef = doc(db, COLLECTION_NAME, roomName);
             try {
@@ -295,7 +272,6 @@
                 let players = rDoc.data().players || [];
                 const existingIndex = players.findIndex(p => p.id === State.myId);
                 
-                // ★修正1：定員チェック（既存ユーザーはOK）
                 if (existingIndex === -1 && players.length >= MAX_PLAYERS) {
                     alert(`ごめんね！この教室は満員（${MAX_PLAYERS}人）です。`);
                     if(isAuto) window.showScreen('screen-title');
@@ -364,7 +340,6 @@
 
             document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName);
             
-            // ★修正2：ぼっち判定とメッセージ
             const isAlone = players.length < 2;
             let subMsg = "";
             if (isAlone) {
@@ -418,7 +393,6 @@
             document.querySelectorAll('.invite-url-box').forEach(el => el.value = getInviteUrl());
 
             const continueBtn = document.getElementById('continue-btn');
-            // ぼっちの時は「続けて描く」も出さない
             if (isMyTurn && State.forceGallery && !isAlone) { continueBtn.style.display = 'block'; } 
             else { continueBtn.style.display = 'none'; }
 
@@ -453,7 +427,6 @@
             }
             document.getElementById('history-count').innerText = `${history.length}/${MAX_HISTORY}`;
 
-            // ★修正2：ぼっちならゲーム画面に行かせない
             if (isMyTurn && !State.isProcessing && !State.forceGallery && !isAlone) {
                 window.showScreen('screen-game');
                 
@@ -824,13 +797,12 @@
             </div>
 
             <button id="title-btn-continue" class="title-menu-btn btn-continue" style="display:none;">👟 続きから遊ぶ</button>
-            <button onclick="goToLobby('create')" class="title-menu-btn btn-create">🏫 新しいグループを作る</button>
-            <button onclick="goToLobby('join')" class="title-menu-btn btn-join">🚪 グループに参加する</button>
+            <button onclick="goToLobby()" class="title-menu-btn btn-create">🏫 新しいグループを作る</button>
             <div style="margin-top:15px;">
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v23.3</div>
+        <div class="version-tag">v23.5</div>
     </div>
 
     <div id="screen-getabako" class="screen">
@@ -838,10 +810,11 @@
             <h1 style="margin:0; font-size:36px; border-bottom:4px solid #fdd835; display:inline-block; padding:0 10px;">ノートの切れ端</h1>
             <div style="background:#fff; margin:20px; padding:30px; border-radius:10px; color:#333; box-shadow:3px 3px 0 rgba(0,0,0,0.2);">
                 <div style="font-size:40px; margin-bottom:10px;">👟</div>
-                <p id="getabako-msg" style="font-size:16px; margin-bottom:20px;">...</p>
-                <button id="btn-getabako-continue" class="action-btn">👟 続きから遊ぶ</button>
+                <p id="getabako-msg" style="font-size:16px; margin-bottom:10px;">...</p>
+                <input type="text" id="getabako-name" placeholder="あなたのお名前" style="text-align:center; background:#eee;">
+                <button id="btn-getabako-continue" class="action-btn">👟 入室する</button>
                 <button id="btn-getabako-ignore" class="action-btn" style="background:#009688; border:1px solid #00796b; display:none;">👟 招待を破棄してロビーへ</button>
-                <button id="btn-getabako-new" class="action-btn" style="background:#e0e0e0; color:#555; margin-top:15px; font-size:14px; box-shadow:none; border:1px solid #ccc;">✨ 新しい上履きをおろす（新規）</button>
+                <button id="btn-getabako-new" class="action-btn" style="background:#e0e0e0; color:#555; margin-top:15px; font-size:14px; box-shadow:none; border:1px solid #ccc; display:none;">✨ 新しい上履きをおろす（新規）</button>
             </div>
         </div>
     </div>
@@ -851,7 +824,6 @@
             <button onclick="window.showScreen('screen-title')" style="background:transparent; border:1px solid rgba(255,255,255,0.5); color:#fff; border-radius:20px; padding:5px 15px; margin-bottom:10px;">↩ タイトルに戻る</button>
         </div>
         <div class="lobby-card" id="create-section"><h3>グループを作る</h3><input type="text" id="new-room-name" placeholder="クラス名（例: 2-C）"><input type="text" id="new-pass" placeholder="合言葉"><input type="text" id="new-host-name" placeholder="あなたの名前"><button onclick="createRoom()" class="action-btn">ノートを開く</button></div>
-        <div class="lobby-card" id="join-section"><h3>グループに入る</h3><input type="text" id="join-room-name" placeholder="クラス名"><input type="text" id="join-pass" placeholder="合言葉"><input type="text" id="join-name" placeholder="あなたの名前"><button onclick="joinRoom()" class="action-btn">教室に入る</button></div>
         <div style="text-align:center; margin-top:20px;"><button onclick="resetIdentity()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; padding:5px 10px; border-radius:15px; font-size:10px;">🏫 転校（IDリセット）</button></div>
     </div>
     
