@@ -1,4 +1,25 @@
-:root { --current-color: #ffeb3b; } * { box-sizing: border-box; } body { font-family: 'Yomogi', cursive, sans-serif; margin: 0; padding: 0; color: #4a3b2a; height: 100vh; overflow: hidden; display: flex; flex-direction: column; transition: background 1s; } 
+:root { --current-color: #ffeb3b; } 
+* { box-sizing: border-box; } 
+
+/* ★PC版でスマホサイズに固定するための設定 */
+html { background-color: #222; } /* PCで見た時の外側の色 */
+body { 
+    font-family: 'Yomogi', cursive, sans-serif; 
+    margin: 0 auto; /* 画面中央に配置 */
+    padding: 0; 
+    color: #4a3b2a; 
+    height: 100vh; 
+    overflow: hidden; 
+    display: flex; 
+    flex-direction: column; 
+    transition: background 1s; 
+    max-width: 450px; /* ★最大幅をスマホサイズに制限 */
+    width: 100%; 
+    box-shadow: 0 0 20px rgba(0,0,0,0.5); /* 影をつけて浮き立たせる */
+    position: relative;
+    background-color: #006940;
+} 
+
 .bg-green { background-color: #006940; background-image: radial-gradient(#008751 10%, transparent 10%); background-size: 20px 20px; position: relative; }
 .bg-green::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.1'/%3E%3C/svg%3E"); pointer-events: none; opacity: 0.3; animation: dust 20s linear infinite; }
 @keyframes dust { 0% { background-position: 0 0; } 100% { background-position: 100px 100px; } }
@@ -13,10 +34,34 @@
 .timer-bar-fill.short { background: #ff8a80; } .timer-bar-fill.short::after { border-color: transparent transparent transparent #ffab91; } 
 .lobby-card { background: #fff; margin: 20px; padding: 25px 20px; border-radius: 4px; box-shadow: 3px 3px 0 rgba(0,0,0,0.2); border: 2px solid #ddd; position: relative; } .lobby-card::before { content: ""; position: absolute; top: 10px; left: 10px; right: 10px; bottom: 10px; border: 1px solid #eee; pointer-events: none; } h3 { text-align: center; border-bottom: 2px solid #006940; padding-bottom: 5px; margin-top: 0; color: #006940; } input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; font-family: inherit; font-size: 16px; outline: none; } input:focus { border-color: #006940; background: #fff; } .action-btn { width: 100%; padding: 12px; background: #006940; color: #fff; font-family: inherit; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; box-shadow: 0 3px 0 #004d40; margin-top: 10px; font-size: 18px; } .action-btn:active { transform: translateY(3px); box-shadow: none; } .highlight { border: 3px solid #fdd835; background: #fffde7; } #member-list { list-style: none; padding: 0; margin: 5px 0; background: rgba(0,0,0,0.2); border-radius: 4px; text-align: left; } #member-list li { padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 14px; display: flex; justify-content: space-between; align-items: center; } .kick-btn { background: #e53935; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; } #canvas-area { flex: 1; padding: 15px; display: flex; flex-direction: column; justify-content: center; width: 100%; overflow: hidden; position: relative; } 
 .notebook-paper { background-color: #fff; width: 100%; height: 100%; border-radius: 2px; box-shadow: 2px 4px 10px rgba(0,0,0,0.2); position: relative; background-image: linear-gradient(90deg, transparent 39px, #ffcdd2 39px, #ffcdd2 41px, transparent 41px), linear-gradient(#e0e0e0 1px, transparent 1px); background-size: 100% 100%, 100% 40px; } canvas { width: 100%; height: 100%; touch-action: none; cursor: crosshair; background: transparent !important; } 
-#prev-history-container { position: absolute; top: -30px; right: 0; display: none; gap: 5px; z-index: 10; max-width: 100%; overflow-x: auto; padding-bottom: 5px; }
-.thumb-box { min-width: 40px; height: 40px; border: 2px solid #fff; box-shadow: 1px 1px 3px rgba(0,0,0,0.3); background: #fff; transform: rotate(5deg); cursor: pointer; transition: transform 0.1s; } .thumb-box:nth-child(even) { transform: rotate(-3deg); } .thumb-box:last-child { transform: rotate(0deg); border: 2px solid #fdd835; } .thumb-box:active { transform: scale(1.1); } .thumb-box img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ★前の絵（サムネイル）の位置とサイズ調整 */
+#prev-history-container { 
+    position: absolute; 
+    top: 5px; /* ★上に飛び出さないようにキャンバスの内側に下げる */
+    right: 5px; /* 右上に配置 */
+    display: none; 
+    gap: 8px; /* ★指で押しやすいように隙間を広げる */
+    z-index: 20; 
+    max-width: calc(100% - 10px); 
+    overflow-x: auto; 
+    padding-bottom: 5px; 
+}
+.thumb-box { 
+    min-width: 45px; /* ★タップしやすいように少し大きく */
+    height: 45px; 
+    border: 2px solid #fff; 
+    box-shadow: 1px 1px 4px rgba(0,0,0,0.4); 
+    background: #fff; 
+    transform: rotate(5deg); 
+    cursor: pointer; 
+    transition: transform 0.1s; 
+} 
+.thumb-box:nth-child(even) { transform: rotate(-3deg); } .thumb-box:last-child { transform: rotate(0deg); border: 2px solid #fdd835; } .thumb-box:active { transform: scale(1.1); } .thumb-box img { width: 100%; height: 100%; object-fit: cover; }
+
 #reference-modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.95); z-index:3000; display:none; justify-content:center; align-items:center; flex-direction: column;} #reference-modal img { max-width:95%; max-height:80%; border: 5px solid #fff; box-shadow: 0 10px 25px rgba(0,0,0,0.2); } #reference-modal button { margin-top: 20px; background: #333; color: #fff; border: none; padding: 10px 20px; font-weight: bold; border-radius: 20px; box-shadow: 0 3px 6px rgba(0,0,0,0.2); }
-.bottom-toolbar { position: fixed; bottom: 0; left: 0; width: 100%; background: #5d4037; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); z-index: 100; } .tool-group { display: flex; gap: 10px; } .tool-btn { width: 45px; height: 45px; border-radius: 50%; border: 2px solid #fff; font-size: 12px; font-family: inherit; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s; } .tool-btn.selected { transform: scale(1.2); border-color: #fdd835; z-index: 10; } #btn-thin { background: #2c2c2c; color: white; } #btn-thick { background: #2c2c2c; color: white; border-width: 4px; } #btn-eraser { background: #fff; color: #333; border: 2px solid #ccc; } .submit-btn { background: #e53935; color: white; padding: 10px 20px; border-radius: 20px; border: none; font-family: inherit; font-weight: bold; box-shadow: 0 3px 0 #b71c1c; } .submit-btn:active { transform: translateY(3px); box-shadow: none; } .waiting-msg { text-align: center; margin-top: 20px; font-size: 24px; color: #4e342e; font-weight: bold; } 
+.bottom-toolbar { position: fixed; bottom: 0; left: 0; width: 100%; background: #5d4037; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); z-index: 100; max-width: 450px; margin: 0 auto; /* PC幅対応 */ right: 0; } 
+.tool-group { display: flex; gap: 10px; } .tool-btn { width: 45px; height: 45px; border-radius: 50%; border: 2px solid #fff; font-size: 12px; font-family: inherit; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s; } .tool-btn.selected { transform: scale(1.2); border-color: #fdd835; z-index: 10; } #btn-thin { background: #2c2c2c; color: white; } #btn-thick { background: #2c2c2c; color: white; border-width: 4px; } #btn-eraser { background: #fff; color: #333; border: 2px solid #ccc; } .submit-btn { background: #e53935; color: white; padding: 10px 20px; border-radius: 20px; border: none; font-family: inherit; font-weight: bold; box-shadow: 0 3px 0 #b71c1c; } .submit-btn:active { transform: translateY(3px); box-shadow: none; } .waiting-msg { text-align: center; margin-top: 20px; font-size: 24px; color: #4e342e; font-weight: bold; } 
 .fusen-badge { position:absolute; top:2px; right:2px; background:#e91e63; color:#fff; font-size:10px; padding:2px 5px; border-radius:10px; box-shadow:1px 1px 2px rgba(0,0,0,0.3); } .invite-url-box { background: #fff; font-size: 10px; padding: 5px; border: 1px solid #ccc; width: 90%; margin: 5px auto; display: block; } .secondary-btn { background: #fff; border: 1px solid #006940; color: #006940; padding: 5px 10px; font-size: 12px; cursor: pointer; border-radius: 4px; font-family: inherit; } #debug-panel { position: fixed; top: 0; right: 0; background: rgba(0,0,0,0.5); color: #fff; font-size: 9px; padding: 2px; pointer-events: none; z-index: 9999; } .empty-msg { text-align: center; color: #fff; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; } #grad-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px; overflow-y: auto; height: 100%; } .grad-item { background: #fff; padding: 5px; border: 1px solid #ccc; text-align: center; border-radius: 4px; } .grad-item img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; } .grad-item button { margin-top: 5px; background: #ff9800; color: #fff; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; } #cm-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; color: #fff; z-index: 9999; } #coloring-container { flex: 1; margin: 15px; position: relative; background: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); overflow: hidden; } #coloring-canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 5; } 
 
 #line-art-overlay { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 10; pointer-events: none; object-fit: contain; mix-blend-mode: multiply; } 
