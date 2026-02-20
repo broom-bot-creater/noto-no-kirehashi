@@ -67,7 +67,7 @@
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v24.1</div>
+        <div class="version-tag">v24.2</div>
     </div>
 
     <div id="screen-getabako" class="screen">
@@ -176,7 +176,16 @@
         <div class="notebook-header" style="padding:5px; display:flex; justify-content:space-between; align-items:center;"><span>🎨 塗り絵モード</span><button onclick="closeColoring()" style="background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px;">戻る</button></div>
         <div id="coloring-container"><canvas id="coloring-canvas"></canvas><img id="line-art-overlay" src=""></div>
         <div class="bottom-toolbar coloring-toolbar">
-            <div class="tool-row"><input type="color" id="color-picker" value="#ffeb3b" onchange="updateColor()" style="width:40px; height:40px; padding:0; border:none; border-radius:50%; overflow:hidden;"><div style="display:flex; flex-direction:column; align-items:center;"><span class="size-label">太さ</span><input type="range" id="pen-size-slider" min="1" max="50" step="1" oninput="updateSize()"></div></div>
+            <div class="tool-row">
+                <input type="color" id="color-picker" value="#ffeb3b" onchange="updateColor()" style="width:40px; height:40px; padding:0; border:none; border-radius:50%; overflow:hidden;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                        <span class="size-label">太さ</span>
+                        <input type="range" id="pen-size-slider" min="1" max="80" step="1" oninput="updateSize()">
+                    </div>
+                    <canvas id="brush-preview" width="80" height="80" style="border:2px solid #fff; background:rgba(255,255,255,0.8); border-radius:8px; box-shadow: 1px 1px 3px rgba(0,0,0,0.2);"></canvas>
+                </div>
+            </div>
             <div class="tool-row"><div id="tool-marker" class="tool-box selected" onclick="setMarker('marker')"><div class="pencil-icon"></div></div><div id="tool-crayon" class="tool-box" onclick="setMarker('crayon')"><div class="pencil-icon"></div></div><div id="tool-eraser" class="tool-box" onclick="setMarker('eraser')"><div class="eraser-icon"></div></div><button onclick="saveColoring()" class="submit-btn" style="width:auto; margin-left:10px; background:#03a9f4; box-shadow:0 3px 0 #0277bd;">完成!</button></div>
         </div>
     </div>
