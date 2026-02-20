@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, deleteDoc, addDoc, collection, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// --- 1:1000025799003:web:1938601e7e65c5d62f427e ---
+// --- ★ご自身の「合鍵」をここに貼り付けてください★ ---
 const firebaseConfig = {
     apiKey: "あなたのAPIキー",
     authDomain: "noto-no-kirehashi.firebaseapp.com",
@@ -21,10 +21,10 @@ const TIME_LIMIT_MS = 24 * 60 * 60 * 1000;
 const MAX_FUSEN_PER_TURN = 10; 
 const MAX_PLAYERS = 8; 
 
-// ★記憶システムを下駄箱（複数対応）に変更
+// 記憶システム
 const STORAGE = {
     ID: 'noto_user_id_v22', 
-    JOINED_ROOMS: 'noto_joined_rooms_v24', // 参加中リストを保存する箱
+    JOINED_ROOMS: 'noto_joined_rooms_v24', 
     CANVAS: 'noto_canvas_backup_'
 };
 
@@ -45,14 +45,14 @@ const State = {
     tickets: 1
 };
 
-// ★下駄箱データの読み書き関数
+// 下駄箱データの読み書き関数
 function getJoinedRooms() {
     try { return JSON.parse(localStorage.getItem(STORAGE.JOINED_ROOMS)) || []; }
     catch(e) { return []; }
 }
 function saveJoinedRoom(roomId, pass, myName) {
     let rooms = getJoinedRooms();
-    rooms = rooms.filter(r => r.roomId !== roomId); // 古い重複を消す
+    rooms = rooms.filter(r => r.roomId !== roomId); 
     rooms.push({ roomId, pass, myName, lastAccessed: Date.now() });
     localStorage.setItem(STORAGE.JOINED_ROOMS, JSON.stringify(rooms));
 }
@@ -87,7 +87,6 @@ function initApp() {
         const btnContinue = document.getElementById('btn-getabako-continue');
         const btnIgnore = document.getElementById('btn-getabako-ignore');
 
-        // もし過去に同じ部屋に入っていたら名前を復元
         const existRoom = getJoinedRooms().find(r => r.roomId === inviteGroup);
         if (existRoom) inputName.value = existRoom.myName;
 
@@ -114,7 +113,7 @@ function initApp() {
     window.showScreen('screen-title');
 }
 
-// ★タイトル画面で下駄箱（参加中リスト）を表示
+// タイトル画面で下駄箱を表示
 function setupTitleScreen() {
     const rooms = getJoinedRooms();
     const listEl = document.getElementById('joined-rooms-list');
@@ -122,7 +121,6 @@ function setupTitleScreen() {
     listEl.innerHTML = '';
     
     if (rooms.length > 0) {
-        // 最近遊んだ順に並べる
         rooms.sort((a,b) => b.lastAccessed - a.lastAccessed).forEach(r => {
             const btn = document.createElement('button');
             btn.className = 'title-menu-btn btn-continue';
@@ -141,6 +139,18 @@ function setupTitleScreen() {
         container.style.display = 'none';
     }
 }
+
+// ★タイトル画面（下駄箱）に戻るための処理
+window.returnToTitle = () => {
+    // 裏側の通信を安全にストップする
+    if (State.unsubRoom) { State.unsubRoom(); State.unsubRoom = null; }
+    if (State.unsubHistory) { State.unsubHistory(); State.unsubHistory = null; }
+    if (State.timer) { clearInterval(State.timer); State.timer = null; }
+    
+    State.roomName = ""; 
+    setupTitleScreen();
+    window.showScreen('screen-title');
+};
 
 function updateNameTag() {
     const el = document.getElementById('name-tag');
@@ -187,7 +197,6 @@ window.createRoom = async () => {
     const hostName = document.getElementById('new-host-name').value.trim();
     if(!roomName || !hostName) return alert("全部入力してね！");
 
-    // ★自動パスワード生成
     const pass = Math.random().toString(36).substring(2, 8);
 
     const docRef = doc(db, COLLECTION_NAME, roomName);
@@ -217,7 +226,7 @@ window.createRoom = async () => {
     });
     
     State.roomName = roomName;
-    saveJoinedRoom(roomName, pass, hostName); // 下駄箱にしまう
+    saveJoinedRoom(roomName, pass, hostName); 
     startListen();
 };
 
@@ -256,7 +265,7 @@ async function joinRoomLogic(roomName, pass, guestName, isAuto = false) {
 
         await updateDoc(docRef, { players: players });
         
-        saveJoinedRoom(roomName, pass, guestName); // 下駄箱情報を更新
+        saveJoinedRoom(roomName, pass, guestName); 
         State.forceGallery = false;
         startListen();
     } catch(e) { console.error(e); alert("入室エラー:\n" + e.message); window.showScreen('screen-title'); }
@@ -279,7 +288,6 @@ function startListen() {
 
     const historyQuery = query(collection(roomRef, "drawings"), orderBy("ts", "asc"));
     State.unsubHistory = onSnapshot(historyQuery, (snap) => {
-        // ★ドキュメントIDも一緒に保存する（付箋を後から貼るため）
         State.historyData = snap.docs.map(d => ({id: d.id, ...d.data()}));
         updateUI();
     });
@@ -367,7 +375,6 @@ function updateUI() {
     if (isMyTurn && State.forceGallery && !isAlone) { continueBtn.style.display = 'block'; } 
     else { continueBtn.style.display = 'none'; }
 
-    // ギャラリーの描画
     const gallery = document.getElementById('gallery');
     gallery.innerHTML = "";
     if (history.length === 0) {
@@ -404,12 +411,10 @@ function updateUI() {
             gallery.appendChild(div);
         });
         
-        // スクロール維持（最下部へ）
         setTimeout(() => { gallery.scrollTop = gallery.scrollHeight; }, 100);
     }
     document.getElementById('history-count').innerText = `${history.length}/${MAX_HISTORY}`;
 
-    // ★もし詳細モーダルを開きっぱなしなら、付箋をリアルタイム更新する
     if (State.selectIndex !== -1 && document.getElementById('detail-modal').style.display === 'flex') {
         renderModalFusens(history[State.selectIndex]);
     }
@@ -452,7 +457,6 @@ window.openReferenceModal = (url) => {
 };
 window.closeReferenceModal = () => { document.getElementById('reference-modal').style.display = 'none'; };
 
-// ★詳細モーダルの付箋を描画する関数
 function renderModalFusens(item) {
     const fc = document.getElementById('detail-fusen-layer'); 
     fc.innerHTML=""; 
@@ -470,7 +474,6 @@ function renderModalFusens(item) {
     }
 }
 
-// ★完成した絵に対して付箋を貼る新システム
 window.sendFusen = async (type) => {
     if (State.isProcessing) return;
     if (State.selectIndex === -1) return;
@@ -478,7 +481,6 @@ window.sendFusen = async (type) => {
     const item = State.historyData[State.selectIndex];
     if(!item || !item.id) return;
 
-    // 1人あたり1つの絵に対して10回までの制限
     const myCount = (item.fusens || []).filter(f => f.from === State.myId).length;
     if (myCount >= MAX_FUSEN_PER_TURN) { alert("この絵への応援は10回まで！"); return; }
 
@@ -492,7 +494,6 @@ window.sendFusen = async (type) => {
 
     const newFusen = { from: State.myId, type: type, x: x, y: y, ts: Date.now() };
     try { 
-        // 部屋全体ではなく、個別の絵（ドキュメント）をピンポイントで更新する
         await updateDoc(doc(db, COLLECTION_NAME, State.roomName, "drawings", item.id), { 
             fusens: arrayUnion(newFusen) 
         }); 
@@ -666,7 +667,6 @@ window.submitArt = async () => {
         const dataUrl = getCanvasJpeg();
         const nextTurn = (State.roomData.currentTurnIndex + 1) % State.roomData.players.length;
         
-        // ★付箋は最初空っぽの状態で保存
         const newHistoryItem = { url: dataUrl, authorId: State.myId, fusens: [], ts: Date.now() };
 
         await addDoc(collection(db, COLLECTION_NAME, State.roomName, "drawings"), newHistoryItem);
