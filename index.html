@@ -19,16 +19,34 @@
     <div id="debug-panel">ID:<span id="debug-my-id"></span></div>
     <div id="name-tag"></div>
 
-    <div id="detail-modal" onclick="if(event.target===this) closeDetailModal()"><div class="detail-card"><button onclick="closeDetailModal()" style="position:absolute; top:5px; right:5px; z-index:10; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:24px; height:24px;">×</button><div class="detail-image-box"><img id="detail-img" src=""><div id="detail-fusen-layer"></div></div><div id="detail-actions" style="margin-top:10px; text-align:center;"></div></div></div>
+    <div id="detail-modal" onclick="if(event.target===this) closeDetailModal()">
+        <div class="detail-card">
+            <button onclick="closeDetailModal()" style="position:absolute; top:5px; right:5px; z-index:10; background:rgba(0,0,0,0.5); color:#fff; border:none; border-radius:50%; width:24px; height:24px;">×</button>
+            <div class="detail-image-box">
+                <img id="detail-img" src="">
+                <div id="detail-fusen-layer"></div>
+            </div>
+            <div id="detail-actions" style="margin-top:10px; text-align:center;">
+                <p style="font-size:12px; margin:0 0 5px 0; color:#006940; font-weight:bold;">🖌️ この絵にシールを貼る！</p>
+                <div style="display:flex; justify-content:center; gap:10px; margin-bottom:10px;">
+                    <button onclick="sendFusen('smile')" class="fusen-btn">😊 にっこり</button>
+                    <button onclick="sendFusen('good')" class="fusen-btn">👍 いいね</button>
+                    <button onclick="sendFusen('clap')" class="fusen-btn">👏 パチパチ</button>
+                </div>
+                <div id="detail-coloring-btn-container"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="reference-modal" onclick="if(event.target===this) closeReferenceModal()"><img id="ref-modal-img" src=""><button onclick="closeReferenceModal()">閉じる</button></div>
     
     <div id="howto-modal" onclick="if(event.target===this) closeHowTo()">
         <div class="howto-content">
             <h2 style="border-bottom:2px solid #009688; color:#009688;">📖 遊び方</h2>
-            <p><strong>1. 部屋を作る</strong><br>好きな「クラス名（合言葉）」を決めて部屋を作ります。</p>
-            <p><strong>2. 招待する</strong><br>「招待状コピー」ボタンを押して、URLを友達に送ります。</p>
+            <p><strong>1. 部屋を作る</strong><br>好きな「クラス名」を決めて部屋を作ります。合言葉は自動で鍵がかかります。</p>
+            <p><strong>2. 招待する</strong><br>「招待状コピー」ボタンを押して、URLを友達に送ります。URLを押すだけで合流できます。</p>
             <p><strong>3. 描く</strong><br>自分の番が来たらキャンバスに絵を描いて「回す」ボタンを押すだけ！</p>
-            <p><strong>4. 見る</strong><br>待機中はギャラリーで過去の絵を見たり、描いている人を応援したりできます。</p>
+            <p><strong>4. 見る・応援する</strong><br>ギャラリーの絵をタップすると、完成した絵にシール（付箋）を貼って応援できます。</p>
             <p style="text-align:center; margin-top:20px;"><button onclick="closeHowTo()" class="title-menu-btn btn-create" style="width:auto; font-size:14px; padding:10px 30px;">閉じる</button></p>
         </div>
     </div>
@@ -38,35 +56,29 @@
     <div id="screen-title" class="screen active" style="display:flex; text-align:center;">
         <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center;">
             <h1 class="title-logo">ノートの切れ端</h1>
-            <div class="intro-box">
-                <b>✨ このゲームのポイント</b><br>
-                ⏰ <b>集まらなくても大丈夫</b><br>
-                持ち時間は一人たっぷり24時間。<br><br>
-                🤝 <b>緩やかなつながり</b><br>
-                順番が来たらあなたのノートが開きます。前の人の絵を見て次に繋げましょう。<br><br>
-                🎉 <b>待っている間も楽しい</b><br>
-                こっそり「付箋」を貼って応援できます（😊👍👏）。<br><br>
-                🎓 <b>目指せ「卒業」！</b><br>
-                40ページ描ききるとゲームクリア。ご褒美に「塗り絵モード」が解禁されます。
+            
+            <div id="joined-rooms-container" style="display:none; width: 90%; max-width: 300px; margin: 0 auto 15px auto; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 10px;">
+                <p style="color:#fff; font-size:14px; margin:0 0 10px 0; font-weight:bold; text-align:left;">👞 参加中の教室</p>
+                <div id="joined-rooms-list" style="display:flex; flex-direction:column; gap:8px;"></div>
             </div>
-            <button id="title-btn-continue" class="title-menu-btn btn-continue" style="display:none;">👟 続きから遊ぶ</button>
-            <button onclick="goToLobby()" class="title-menu-btn btn-create">🏫 新しいグループを作る</button>
+
+            <button onclick="goToLobby()" class="title-menu-btn btn-create" style="margin-top:0;">🏫 新しい教室を作る</button>
             <div style="margin-top:15px;">
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v23.7</div>
+        <div class="version-tag">v24.0</div>
     </div>
 
     <div id="screen-getabako" class="screen">
         <div style="text-align:center; padding-top:40px; color:#fff;">
             <h1 style="margin:0; font-size:36px; border-bottom:4px solid #fdd835; display:inline-block; padding:0 10px;">ノートの切れ端</h1>
             <div style="background:#fff; margin:20px; padding:30px; border-radius:10px; color:#333; box-shadow:3px 3px 0 rgba(0,0,0,0.2);">
-                <div style="font-size:40px; margin-bottom:10px;">👟</div>
+                <div style="font-size:40px; margin-bottom:10px;">💌</div>
                 <p id="getabako-msg" style="font-size:16px; margin-bottom:10px;">...</p>
                 <input type="text" id="getabako-name" placeholder="あなたのお名前" style="text-align:center; background:#eee;">
                 <button id="btn-getabako-continue" class="action-btn">👟 入室する</button>
-                <button id="btn-getabako-ignore" class="action-btn" style="background:#009688; border:1px solid #00796b; display:none;">👟 招待を破棄してロビーへ</button>
+                <button id="btn-getabako-ignore" class="action-btn" style="background:#009688; border:1px solid #00796b; margin-top:15px; display:none;">👟 招待を破棄して戻る</button>
             </div>
         </div>
     </div>
@@ -75,8 +87,14 @@
         <div style="text-align:center; padding-top:20px; color:#fff;">
             <button onclick="window.showScreen('screen-title')" style="background:transparent; border:1px solid rgba(255,255,255,0.5); color:#fff; border-radius:20px; padding:5px 15px; margin-bottom:10px;">↩ タイトルに戻る</button>
         </div>
-        <div class="lobby-card" id="create-section"><h3>グループを作る</h3><input type="text" id="new-room-name" placeholder="クラス名（例: 2-C）"><input type="text" id="new-pass" placeholder="合言葉"><input type="text" id="new-host-name" placeholder="あなたの名前"><button onclick="createRoom()" class="action-btn">ノートを開く</button></div>
-        <div style="text-align:center; margin-top:20px;"><button onclick="resetIdentity()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; padding:5px 10px; border-radius:15px; font-size:10px;">🏫 転校（IDリセット）</button></div>
+        <div class="lobby-card" id="create-section">
+            <h3>教室を作る</h3>
+            <input type="text" id="new-room-name" placeholder="クラス名（例: 2-C）">
+            <input type="text" id="new-host-name" placeholder="あなたの名前">
+            <button onclick="createRoom()" class="action-btn">ノートを開く</button>
+            <p style="font-size:10px; color:#888; margin-top:10px;">※合言葉は自動で作成され、安全に鍵がかかります。</p>
+        </div>
+        <div style="text-align:center; margin-top:20px;"><button onclick="resetIdentity()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; padding:5px 10px; border-radius:15px; font-size:10px;">⚠️ 全データリセット（引退）</button></div>
     </div>
     
     <div id="screen-waiting" class="screen">
@@ -91,15 +109,6 @@
         <div class="notebook-header"><div class="header-title-box"><span class="room-name-label"></span></div><ul id="member-list"></ul><div id="header-sub-msg" style="font-size:12px;"></div>
         <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
         <button id="btn-disband" onclick="disbandRoom()" style="margin-top:10px; background:#d32f2f; border:1px solid #b71c1c; color:#fff; padding:5px 15px; border-radius:20px; font-size:12px; cursor:pointer; display:none; width:100%;">💣 教室を解散する</button>
-        
-        <div id="cheer-section" style="margin-top:10px; display:none; background:rgba(255,255,255,0.2); padding:5px; border-radius:5px;">
-            <p style="font-size:12px; margin:0 0 5px 0;">🖌️ <span id="cheer-target-name"></span> さんを応援しよう！</p>
-            <div style="display:flex; justify-content:center; gap:10px;">
-                <button onclick="sendCheer('smile')" class="fusen-btn">😊 にっこり</button>
-                <button onclick="sendCheer('good')" class="fusen-btn">👍 いいね</button>
-                <button onclick="sendCheer('clap')" class="fusen-btn">👏 パチパチ</button>
-            </div>
-        </div>
 
         <button id="reset-room-btn" onclick="resetRoomHistory()" style="margin-top:5px; background:#ef5350; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:5px 10px; cursor:pointer; display:none;">🧹 黒板消し（履歴リセット）</button>
         <button onclick="resumeDrawing()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:2px 5px; cursor:pointer;" ontouchstart="resumeDrawing()">⚠️ 強制描画</button>
@@ -137,7 +146,6 @@
                 <div id="prev-history-container"><div id="prev-history-bar" style="display:flex; gap:5px;"></div></div>
                 <div id="prev-img-container" style="display:none;"><span style="font-size:10px; color:#666;">前の絵</span><img id="prev-img" src=""></div>
                 <canvas id="canvas"></canvas>
-                <div id="live-fusen-layer"></div>
             </div>
         </div>
         <div class="bottom-toolbar"><div class="tool-group"><button id="btn-thin" class="tool-btn selected" onclick="setPen('thin')">細</button><button id="btn-thick" class="tool-btn" onclick="setPen('thick')">太</button><button id="btn-eraser" class="tool-btn" onclick="setPen('eraser')">消</button></div><button onclick="submitArt()" class="submit-btn">次の人へ回す</button></div>
