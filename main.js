@@ -16,16 +16,15 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const COLLECTION_NAME = "rooms_v23_0_title"; 
-const MAX_HISTORY = 40; // ★40ページ卒業に変更
+const MAX_HISTORY = 40; 
 const TIME_LIMIT_MS = 24 * 60 * 60 * 1000; 
 const MAX_FUSEN_PER_TURN = 10; 
-const MAX_PLAYERS = 8;  // ★定員8人に変更
+const MAX_PLAYERS = 8; 
 
+// ★記憶システムを下駄箱（複数対応）に変更
 const STORAGE = {
     ID: 'noto_user_id_v22', 
-    NAME: 'noto_user_name_v22',
-    ROOM: 'noto_room_name_v22',
-    PASS: 'noto_room_pass_v22',
+    JOINED_ROOMS: 'noto_joined_rooms_v24', // 参加中リストを保存する箱
     CANVAS: 'noto_canvas_backup_'
 };
 
@@ -46,6 +45,23 @@ const State = {
     tickets: 1
 };
 
+// ★下駄箱データの読み書き関数
+function getJoinedRooms() {
+    try { return JSON.parse(localStorage.getItem(STORAGE.JOINED_ROOMS)) || []; }
+    catch(e) { return []; }
+}
+function saveJoinedRoom(roomId, pass, myName) {
+    let rooms = getJoinedRooms();
+    rooms = rooms.filter(r => r.roomId !== roomId); // 古い重複を消す
+    rooms.push({ roomId, pass, myName, lastAccessed: Date.now() });
+    localStorage.setItem(STORAGE.JOINED_ROOMS, JSON.stringify(rooms));
+}
+function removeJoinedRoom(roomId) {
+    let rooms = getJoinedRooms();
+    rooms = rooms.filter(r => r.roomId !== roomId);
+    localStorage.setItem(STORAGE.JOINED_ROOMS, JSON.stringify(rooms));
+}
+
 window.addEventListener('DOMContentLoaded', initApp);
 
 function initApp() {
@@ -57,21 +73,23 @@ function initApp() {
     const inviteGroup = rawGroup ? rawGroup.trim() : null;
     const invitePass = rawPass ? rawPass.trim() : null;
 
-    const savedId = localStorage.getItem(STORAGE.ID);
-    const savedName = localStorage.getItem(STORAGE.NAME);
-    const savedRoom = localStorage.getItem(STORAGE.ROOM);
+    let savedId = localStorage.getItem(STORAGE.ID);
+    if (!savedId) {
+        savedId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem(STORAGE.ID, savedId);
+    }
+    State.myId = savedId;
 
     if (inviteGroup) {
-        if (!savedId) createNewIdentity();
-        else { State.myId = savedId; State.myName = savedName; }
-        
         window.showScreen('screen-getabako');
         const msgEl = document.getElementById('getabako-msg');
         const inputName = document.getElementById('getabako-name');
         const btnContinue = document.getElementById('btn-getabako-continue');
         const btnIgnore = document.getElementById('btn-getabako-ignore');
 
-        if (State.myName) inputName.value = State.myName;
+        // もし過去に同じ部屋に入っていたら名前を復元
+        const existRoom = getJoinedRooms().find(r => r.roomId === inviteGroup);
+        if (existRoom) inputName.value = existRoom.myName;
 
         msgEl.innerHTML = `招待状が届いています。<br>教室「<strong>${inviteGroup}</strong>」に入りますか？`;
         btnContinue.innerText = `👟 入室する`;
@@ -79,9 +97,7 @@ function initApp() {
         btnContinue.onclick = () => {
             const name = inputName.value.trim();
             if (!name) return alert("名前を入れてね！");
-            
             State.myName = name;
-            localStorage.setItem(STORAGE.NAME, State.myName); 
             updateNameTag();
             joinRoomLogic(inviteGroup, invitePass, State.myName, true);
         };
@@ -94,48 +110,36 @@ function initApp() {
         return;
     }
 
-    if (savedId) { State.myId = savedId; State.myName = savedName; }
     setupTitleScreen();
     window.showScreen('screen-title');
 }
 
+// ★タイトル画面で下駄箱（参加中リスト）を表示
 function setupTitleScreen() {
-    const savedRoom = localStorage.getItem(STORAGE.ROOM);
-    const savedName = localStorage.getItem(STORAGE.NAME);
-    const btnContinue = document.getElementById('title-btn-continue');
-
-    if (savedRoom && savedName) {
-        btnContinue.style.display = 'block';
-        btnContinue.innerHTML = `👟 続きから遊ぶ<br><span style="font-size:12px">(${savedRoom} / ${savedName})</span>`;
-        btnContinue.onclick = () => {
-            const pass = localStorage.getItem(STORAGE.PASS);
-            loginAsExistingUser(savedRoom, pass, false);
-        };
+    const rooms = getJoinedRooms();
+    const listEl = document.getElementById('joined-rooms-list');
+    const container = document.getElementById('joined-rooms-container');
+    listEl.innerHTML = '';
+    
+    if (rooms.length > 0) {
+        // 最近遊んだ順に並べる
+        rooms.sort((a,b) => b.lastAccessed - a.lastAccessed).forEach(r => {
+            const btn = document.createElement('button');
+            btn.className = 'title-menu-btn btn-continue';
+            btn.style.margin = "0";
+            btn.style.width = "100%";
+            btn.innerHTML = `🚪 ${r.roomId} <span style="font-size:12px; margin-top:2px;">(名前: ${r.myName})</span>`;
+            btn.onclick = () => {
+                State.myName = r.myName;
+                updateNameTag();
+                joinRoomLogic(r.roomId, r.pass, r.myName, false);
+            };
+            listEl.appendChild(btn);
+        });
+        container.style.display = 'block';
     } else {
-        btnContinue.style.display = 'none';
+        container.style.display = 'none';
     }
-}
-
-async function loginAsExistingUser(room, pass, isInvite) {
-    State.myId = localStorage.getItem(STORAGE.ID);
-    State.myName = localStorage.getItem(STORAGE.NAME);
-    updateNameTag();
-    await joinRoomLogic(room, pass, State.myName, true);
-}
-
-function createNewIdentity() {
-    let existing = localStorage.getItem(STORAGE.ID);
-    if (!existing) {
-        existing = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        localStorage.setItem(STORAGE.ID, existing);
-    }
-    State.myId = existing;
-    updateNameTag();
-}
-
-function resetLocalData() {
-    localStorage.clear();
-    State.myId = null; State.myName = null;
 }
 
 function updateNameTag() {
@@ -180,15 +184,11 @@ function getInviteUrl() {
 
 window.createRoom = async () => {
     const roomName = document.getElementById('new-room-name').value.trim();
-    const pass = document.getElementById('new-pass').value.trim();
     const hostName = document.getElementById('new-host-name').value.trim();
-    if(!roomName || !pass || !hostName) return alert("全部入力してね！");
+    if(!roomName || !hostName) return alert("全部入力してね！");
 
-    if (!State.myId) createNewIdentity();
-
-    State.myName = hostName; 
-    localStorage.setItem(STORAGE.NAME, State.myName); 
-    updateNameTag();
+    // ★自動パスワード生成
+    const pass = Math.random().toString(36).substring(2, 8);
 
     const docRef = doc(db, COLLECTION_NAME, roomName);
     const docSnap = await getDoc(docRef);
@@ -202,6 +202,9 @@ window.createRoom = async () => {
     }
     
     State.forceGallery = false;
+    State.myName = hostName;
+    updateNameTag();
+
     const me = { id: State.myId, name: hostName };
     const now = Date.now();
     
@@ -209,14 +212,12 @@ window.createRoom = async () => {
         password: pass, 
         players: [me], 
         currentTurnIndex: 0, 
-        liveFusens: [], 
         startTime: now, 
         turnStartTime: now 
     });
     
     State.roomName = roomName;
-    localStorage.setItem(STORAGE.ROOM, roomName);
-    localStorage.setItem(STORAGE.PASS, pass);
+    saveJoinedRoom(roomName, pass, hostName); // 下駄箱にしまう
     startListen();
 };
 
@@ -225,20 +226,18 @@ async function joinRoomLogic(roomName, pass, guestName, isAuto = false) {
     try {
         const rDoc = await getDoc(docRef);
         if(!rDoc.exists()) {
-            if(isAuto) { alert(`教室「${roomName}」が見つかりません。`); clearLocalRoomData(); window.showScreen('screen-title'); } 
+            if(isAuto) { alert(`教室「${roomName}」が見つかりません。解散した可能性があります。`); removeJoinedRoom(roomName); location.reload(); } 
             else { alert("グループが見つかりません。"); }
             return;
         }
         if(rDoc.data().password !== pass) {
-            if(isAuto) { localStorage.removeItem(STORAGE.PASS); window.showScreen('screen-title'); }
+            if(isAuto) { alert(`合言葉が変わりました。もう一度招待URLから入ってください。`); removeJoinedRoom(roomName); location.reload(); }
             else { alert("合言葉が違います。"); }
             return;
         }
 
         State.roomName = roomName;
-        localStorage.setItem(STORAGE.ROOM, roomName);
-        localStorage.setItem(STORAGE.PASS, pass);
-        localStorage.setItem(STORAGE.NAME, guestName);
+        State.myName = guestName;
 
         let players = rDoc.data().players || [];
         const existingIndex = players.findIndex(p => p.id === State.myId);
@@ -256,6 +255,8 @@ async function joinRoomLogic(roomName, pass, guestName, isAuto = false) {
         }
 
         await updateDoc(docRef, { players: players });
+        
+        saveJoinedRoom(roomName, pass, guestName); // 下駄箱情報を更新
         State.forceGallery = false;
         startListen();
     } catch(e) { console.error(e); alert("入室エラー:\n" + e.message); window.showScreen('screen-title'); }
@@ -270,7 +271,7 @@ function startListen() {
     State.unsubRoom = onSnapshot(roomRef, (snap) => {
         if (!snap.exists()) { 
             alert("教室が解散されました。"); 
-            clearLocalRoomData(); location.reload(); return; 
+            removeJoinedRoom(State.roomName); localStorage.removeItem(STORAGE.CANVAS + State.roomName); location.reload(); return; 
         }
         State.roomData = snap.data();
         updateUI();
@@ -278,7 +279,8 @@ function startListen() {
 
     const historyQuery = query(collection(roomRef, "drawings"), orderBy("ts", "asc"));
     State.unsubHistory = onSnapshot(historyQuery, (snap) => {
-        State.historyData = snap.docs.map(d => d.data());
+        // ★ドキュメントIDも一緒に保存する（付箋を後から貼るため）
+        State.historyData = snap.docs.map(d => ({id: d.id, ...d.data()}));
         updateUI();
     });
 }
@@ -289,7 +291,7 @@ function updateUI() {
     
     if (!players.find(p => p.id === State.myId) && State.roomName) {
         alert("退学（キック）になりました。");
-        clearLocalRoomData(); location.reload(); return;
+        removeJoinedRoom(State.roomName); localStorage.removeItem(STORAGE.CANVAS + State.roomName); location.reload(); return;
     }
 
     const history = State.historyData || [];
@@ -353,10 +355,8 @@ function updateUI() {
 
     const myIdx = players.findIndex(p => p.id === State.myId);
     let waitMsg = "";
-    
-    if (isAlone) {
-        waitMsg = "👥 友達を待っています（2人から開始）";
-    } else if (myIdx !== -1) {
+    if (isAlone) { waitMsg = "👥 友達を待っています（2人から開始）"; } 
+    else if (myIdx !== -1) {
         let waitCount = (myIdx - turnIdx + players.length) % players.length;
         waitMsg = (waitCount === 0) ? "あなたの番！" : `あと ${waitCount} 人`;
     }
@@ -367,14 +367,7 @@ function updateUI() {
     if (isMyTurn && State.forceGallery && !isAlone) { continueBtn.style.display = 'block'; } 
     else { continueBtn.style.display = 'none'; }
 
-    const cheerSection = document.getElementById('cheer-section');
-    if (!isMyTurn && !State.forceGallery && currentTurnId !== "???" && !isAlone) {
-        cheerSection.style.display = 'block';
-        document.getElementById('cheer-target-name').innerText = currentPlayerObj ? currentPlayerObj.name : "友達";
-    } else {
-        cheerSection.style.display = 'none';
-    }
-
+    // ギャラリーの描画
     const gallery = document.getElementById('gallery');
     gallery.innerHTML = "";
     if (history.length === 0) {
@@ -411,16 +404,18 @@ function updateUI() {
             gallery.appendChild(div);
         });
         
-        setTimeout(() => {
-            gallery.scrollTop = gallery.scrollHeight;
-        }, 100);
+        // スクロール維持（最下部へ）
+        setTimeout(() => { gallery.scrollTop = gallery.scrollHeight; }, 100);
     }
     document.getElementById('history-count').innerText = `${history.length}/${MAX_HISTORY}`;
 
+    // ★もし詳細モーダルを開きっぱなしなら、付箋をリアルタイム更新する
+    if (State.selectIndex !== -1 && document.getElementById('detail-modal').style.display === 'flex') {
+        renderModalFusens(history[State.selectIndex]);
+    }
+
     if (isMyTurn && !State.isProcessing && !State.forceGallery && !isAlone) {
         window.showScreen('screen-game');
-        
-        renderLiveFusens(State.roomData.liveFusens || []);
 
         const prevBar = document.getElementById('prev-history-bar');
         prevBar.innerHTML = ""; 
@@ -443,7 +438,6 @@ function updateUI() {
         } else {
             document.getElementById('prev-history-container').style.display = 'none';
         }
-
         setTimeout(() => initCanvas(), 100);
     } else {
         window.showScreen('screen-waiting');
@@ -456,33 +450,39 @@ window.openReferenceModal = (url) => {
     img.src = url;
     modal.style.display = 'flex';
 };
-window.closeReferenceModal = () => {
-    document.getElementById('reference-modal').style.display = 'none';
-};
+window.closeReferenceModal = () => { document.getElementById('reference-modal').style.display = 'none'; };
 
-function renderLiveFusens(fusens) {
-    const container = document.getElementById('live-fusen-layer');
-    container.innerHTML = ""; 
-    fusens.forEach(f => {
-        const el = document.createElement('div');
-        el.className = `fusen-sticker fusen-${f.type}`;
-        
-        let text = "😊"; 
-        if (f.type === 'good') text = "👍"; 
-        if (f.type === 'clap') text = "👏";
-        el.innerText = text; 
-        el.style.left = f.x + "%"; 
-        el.style.top = f.y + "%";
-        container.appendChild(el);
-    });
+// ★詳細モーダルの付箋を描画する関数
+function renderModalFusens(item) {
+    const fc = document.getElementById('detail-fusen-layer'); 
+    fc.innerHTML=""; 
+    if(item && item.fusens) {
+        item.fusens.forEach(f=>{ 
+            const el=document.createElement('div'); 
+            el.className=`fusen-sticker fusen-${f.type}`; 
+            let t = "😊"; 
+            if(f.type==='good') t="👍"; 
+            if(f.type==='clap') t="👏";
+            el.innerText=t; 
+            el.style.left=f.x+"%"; el.style.top=f.y+"%"; 
+            fc.appendChild(el); 
+        }); 
+    }
 }
 
-window.sendCheer = async (type) => {
+// ★完成した絵に対して付箋を貼る新システム
+window.sendFusen = async (type) => {
     if (State.isProcessing) return;
-    const currentFusens = State.roomData.liveFusens || [];
-    const myCount = currentFusens.filter(f => f.from === State.myId).length;
-    if (myCount >= MAX_FUSEN_PER_TURN) { alert("応援は1ターンにつき10回まで！"); return; }
+    if (State.selectIndex === -1) return;
+    
+    const item = State.historyData[State.selectIndex];
+    if(!item || !item.id) return;
 
+    // 1人あたり1つの絵に対して10回までの制限
+    const myCount = (item.fusens || []).filter(f => f.from === State.myId).length;
+    if (myCount >= MAX_FUSEN_PER_TURN) { alert("この絵への応援は10回まで！"); return; }
+
+    State.isProcessing = true;
     const corner = Math.floor(Math.random() * 4);
     let x, y; const margin = 10; const jitter = 10;
     if (corner === 0) { x = margin + Math.random()*jitter; y = margin + Math.random()*jitter; }
@@ -491,8 +491,37 @@ window.sendCheer = async (type) => {
     else { x = (90-margin) - Math.random()*jitter; y = (90-margin) - Math.random()*jitter; }
 
     const newFusen = { from: State.myId, type: type, x: x, y: y, ts: Date.now() };
-    try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { liveFusens: arrayUnion(newFusen) }); } catch(e) { console.error(e); }
+    try { 
+        // 部屋全体ではなく、個別の絵（ドキュメント）をピンポイントで更新する
+        await updateDoc(doc(db, COLLECTION_NAME, State.roomName, "drawings", item.id), { 
+            fusens: arrayUnion(newFusen) 
+        }); 
+    } catch(e) { 
+        console.error(e); 
+    } finally {
+        State.isProcessing = false;
+    }
 };
+
+window.openDetailModal = (index) => { 
+    State.selectIndex = index; 
+    const item = State.historyData[index]; 
+    document.getElementById('detail-img').src = item.url; 
+    
+    renderModalFusens(item);
+    
+    let html = "";
+    if (State.historyData.length >= MAX_HISTORY) {
+        html += `<hr style="margin:10px 0;border:0;border-top:1px dashed #ccc;"><button onclick="startColoringFromModal('${item.url}')" style="background:#ff9800;color:#fff;border:none;padding:5px 15px;border-radius:15px;font-size:12px;margin-top:10px;">🎨 塗り絵する (CM)</button>`; 
+    } else {
+        html += `<p style="color:#888; font-size:10px;">卒業（${MAX_HISTORY}枚）すると塗り絵ができます</p>`;
+    }
+    
+    document.getElementById('detail-coloring-btn-container').innerHTML = html; 
+    document.getElementById('detail-modal').style.display='flex'; 
+};
+window.closeDetailModal = () => { document.getElementById('detail-modal').style.display='none'; State.selectIndex=-1; };
+window.startColoringFromModal = (url) => { closeDetailModal(); startColoring(url); };
 
 function resumeDrawing() { State.forceGallery = false; updateUI(); }
 
@@ -517,13 +546,13 @@ async function deleteRoomLogic(deleteRoomSelf) {
         if (deleteRoomSelf) {
             await deleteDoc(roomRef);
             alert("教室を解散しました。");
-            clearLocalRoomData();
+            removeJoinedRoom(State.roomName);
+            localStorage.removeItem(STORAGE.CANVAS + State.roomName);
             location.reload();
         } else {
             await updateDoc(roomRef, { 
                 currentTurnIndex: 0, 
-                turnStartTime: Date.now(), 
-                liveFusens: []
+                turnStartTime: Date.now()
             });
             alert("黒板をきれいにしました！");
         }
@@ -610,17 +639,14 @@ window.setPen = (type) => {
 
 function isCanvasBlank(canvas) {
     const context = canvas.getContext('2d');
-    const pixelBuffer = new Uint32Array(
-        context.getImageData(0, 0, canvas.width, canvas.height).data.buffer
-    );
+    const pixelBuffer = new Uint32Array(context.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
     return !pixelBuffer.some(color => color !== 0);
 }
 
 function getCanvasJpeg() {
     const c = document.getElementById('canvas');
     const tempC = document.createElement('canvas');
-    tempC.width = c.width;
-    tempC.height = c.height;
+    tempC.width = c.width; tempC.height = c.height;
     const tCtx = tempC.getContext('2d');
     tCtx.fillStyle = "#ffffff";
     tCtx.fillRect(0, 0, tempC.width, tempC.height);
@@ -639,15 +665,15 @@ window.submitArt = async () => {
     try {
         const dataUrl = getCanvasJpeg();
         const nextTurn = (State.roomData.currentTurnIndex + 1) % State.roomData.players.length;
-        const fusensToSave = State.roomData.liveFusens || [];
-        const newHistoryItem = { url: dataUrl, authorId: State.myId, fusens: fusensToSave, ts: Date.now() };
+        
+        // ★付箋は最初空っぽの状態で保存
+        const newHistoryItem = { url: dataUrl, authorId: State.myId, fusens: [], ts: Date.now() };
 
         await addDoc(collection(db, COLLECTION_NAME, State.roomName, "drawings"), newHistoryItem);
 
         await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { 
             currentTurnIndex: nextTurn, 
-            turnStartTime: Date.now(),
-            liveFusens: []
+            turnStartTime: Date.now()
         });
         
         localStorage.removeItem(STORAGE.CANVAS + State.roomName);
@@ -664,40 +690,12 @@ window.leaveRoom = async () => {
         let newTurnIdx = State.roomData.currentTurnIndex; if (newTurnIdx >= newPlayers.length) newTurnIdx = 0;
         try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { players: newPlayers, currentTurnIndex: newTurnIdx }); } catch(e) { console.error(e); }
     }
-    clearLocalRoomData(); alert("転校しました。"); location.reload();
+    removeJoinedRoom(State.roomName); 
+    localStorage.removeItem(STORAGE.CANVAS + State.roomName);
+    alert("転校しました。"); location.reload();
 };
-function clearLocalRoomData() { localStorage.removeItem(STORAGE.ROOM); localStorage.removeItem(STORAGE.PASS); if(State.roomName) localStorage.removeItem(STORAGE.CANVAS + State.roomName); }
-window.resetIdentity = () => { if(!confirm("IDをリセットして転校（再読込）しますか？")) return; localStorage.clear(); location.reload(); };
 
-window.openDetailModal = (index) => { 
-    State.selectIndex = index; 
-    const item = State.historyData[index]; 
-    document.getElementById('detail-img').src = item.url; 
-    const fc = document.getElementById('detail-fusen-layer'); 
-    fc.innerHTML=""; 
-    if(item.fusens) item.fusens.forEach(f=>{ 
-        const el=document.createElement('div'); 
-        el.className=`fusen-sticker fusen-${f.type}`; 
-        let t = "😊"; 
-        if(f.type==='good') t="👍"; 
-        if(f.type==='clap') t="👏";
-        el.innerText=t; 
-        el.style.left=f.x+"%"; el.style.top=f.y+"%"; 
-        fc.appendChild(el); 
-    }); 
-    
-    let html = "";
-    if (State.historyData.length >= MAX_HISTORY) {
-        html += `<hr style="margin:10px 0;border:0;border-top:1px dashed #ccc;"><button onclick="startColoringFromModal('${item.url}')" style="background:#ff9800;color:#fff;border:none;padding:5px 15px;border-radius:15px;font-size:12px;">🎨 塗り絵する (CM)</button>`; 
-    } else {
-        html += `<p style="color:#888; font-size:10px;">卒業（40枚）すると塗り絵ができます</p>`;
-    }
-    
-    document.getElementById('detail-actions').innerHTML=html; 
-    document.getElementById('detail-modal').style.display='flex'; 
-};
-window.closeDetailModal = () => { document.getElementById('detail-modal').style.display='none'; State.selectIndex=-1; };
-window.startColoringFromModal = (url) => { closeDetailModal(); startColoring(url); };
+window.resetIdentity = () => { if(!confirm("⚠️本当に全データを消去して引退しますか？参加していた教室には入れなくなります。")) return; localStorage.clear(); location.reload(); };
 
 function checkTimeLimit() { 
     if(!State.roomData||State.historyData.length>=MAX_HISTORY)return; 
@@ -714,10 +712,7 @@ async function skipTurnAutomatically() { State.isProcessing=true; try{ const nex
 window.startColoring = async (url) => { if(State.tickets<=0)return alert("チケットがありません"); if(!confirm("CMを見て塗り絵を始めますか？"))return; document.getElementById('cm-overlay').style.display='flex'; await new Promise(r=>setTimeout(r,3000)); document.getElementById('cm-overlay').style.display='none'; State.tickets--; State.colorUrl=url; window.showScreen('screen-coloring'); };
 window.closeColoring = () => { if(!confirm("終了しますか？"))return; if(State.historyData.length>=MAX_HISTORY)window.showScreen('screen-graduation'); else window.showScreen('screen-waiting'); updateUI(); };
 
-window.deleteRoomData = async () => { 
-    if(!confirm("削除しますか？"))return; 
-    deleteRoomLogic(true);
-};
+window.deleteRoomData = async () => { if(!confirm("削除しますか？"))return; deleteRoomLogic(true); };
 
 function renderGraduationScreen(history, isHost) { const currentScreen = document.querySelector('.screen.active'); if (currentScreen && (currentScreen.id === 'screen-coloring' || document.getElementById('detail-modal').style.display === 'flex')) return; window.showScreen('screen-graduation'); document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName); document.getElementById('coloring-ticket-count').innerText = State.tickets; const grid = document.getElementById('grad-grid'); grid.innerHTML = ""; history.forEach((item, i) => { const div = document.createElement('div'); div.className = "grad-item"; const img = document.createElement('img'); img.src = item.url; img.onclick = () => openDetailModal(i); div.appendChild(img); if (item.fusens && item.fusens.length > 0) { const badge = document.createElement('span'); badge.style.fontSize = "10px"; badge.innerText = `💌 ${item.fusens.length}`; div.appendChild(document.createElement('br')); div.appendChild(badge); } grid.appendChild(div); }); const deleteArea = document.getElementById('host-delete-area'); if (isHost) { deleteArea.style.display = 'block'; } else { deleteArea.style.display = 'none'; } }
 
@@ -737,24 +732,12 @@ function initColoringCanvas() {
         const r = c.getBoundingClientRect(); 
         const sx = c.width / r.width; 
         const sy = c.height / r.height; 
-        return {
-            x: (e.clientX - r.left) * sx, 
-            y: (e.clientY - r.top) * sy,
-            pressure: e.pressure
-        };
+        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, pressure: e.pressure };
     }; 
     
     let d = false; 
     
-    c.onpointerdown = (e) => {
-        d = true;
-        c.setPointerCapture(e.pointerId);
-        const p = getPos(e);
-        cCtx.beginPath();
-        cCtx.moveTo(p.x, p.y);
-        e.preventDefault();
-    }; 
-    
+    c.onpointerdown = (e) => { d = true; c.setPointerCapture(e.pointerId); const p = getPos(e); cCtx.beginPath(); cCtx.moveTo(p.x, p.y); e.preventDefault(); }; 
     c.onpointermove = (e) => {
         if(d){
             const p = getPos(e);
@@ -762,44 +745,25 @@ function initColoringCanvas() {
                 let baseSize = document.getElementById('pen-size-slider').value;
                 cCtx.lineWidth = baseSize * (p.pressure * 1.5);
             }
-            cCtx.lineTo(p.x, p.y);
-            cCtx.stroke();
-            cCtx.beginPath();
-            cCtx.moveTo(p.x, p.y);
-            e.preventDefault();
+            cCtx.lineTo(p.x, p.y); cCtx.stroke(); cCtx.beginPath(); cCtx.moveTo(p.x, p.y); e.preventDefault();
         }
     }; 
-    
-    c.onpointerup = (e) => {
-        d = false;
-        c.releasePointerCapture(e.pointerId);
-        window.updateSize(); 
-    }; 
+    c.onpointerup = (e) => { d = false; c.releasePointerCapture(e.pointerId); window.updateSize(); }; 
 }
 
 let cCtx;
 window.setMarker=(t)=>{ cCtx.globalCompositeOperation='source-over'; cCtx.lineWidth=document.getElementById('pen-size-slider').value; document.querySelectorAll('.tool-box').forEach(b=>b.classList.remove('selected')); if(t==='marker'){document.getElementById('tool-marker').classList.add('selected');updateColor();}else if(t==='crayon'){document.getElementById('tool-crayon').classList.add('selected');updateColor();}else{cCtx.globalCompositeOperation='destination-out';cCtx.globalAlpha=1;document.getElementById('tool-eraser').classList.add('selected');} };
 window.updateSize=()=>{cCtx.lineWidth=document.getElementById('pen-size-slider').value;}; window.updateColor=()=>{const c=document.getElementById('color-picker').value; document.documentElement.style.setProperty('--current-color',c); if(cCtx.globalCompositeOperation!=='destination-out'){ if(document.getElementById('tool-marker').classList.contains('selected')){ const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16); cCtx.strokeStyle=`rgba(${r},${g},${b},0.4)`; }else{ cCtx.strokeStyle=c; } } };
 
-// ★塗り絵保存バグ修正：乗算を使って合成保存する処理を追加
 window.saveColoring=async()=>{ 
     if(!confirm("完成？"))return; 
     const t=document.createElement('canvas'); 
-    t.width=cCtx.canvas.width; 
-    t.height=cCtx.canvas.height; 
+    t.width=cCtx.canvas.width; t.height=cCtx.canvas.height; 
     const tx=t.getContext('2d'); 
-    
-    // 背景を白にする
-    tx.fillStyle="#fff"; 
-    tx.fillRect(0,0,t.width,t.height); 
-    
-    // 塗った色を描画
+    tx.fillStyle="#fff"; tx.fillRect(0,0,t.width,t.height); 
     tx.drawImage(cCtx.canvas,0,0); 
-    
-    // 乗算モードに変更して、線画を上に重ねる
     tx.globalCompositeOperation = 'multiply';
     tx.drawImage(document.getElementById('line-art-overlay'),0,0,t.width,t.height); 
-    
     t.toBlob(b=>{ 
         const f=new File([b],"nurie.png",{type:"image/png"}); 
         if(navigator.share){navigator.share({files:[f]}).catch(()=>{downloadBlob(b)})}else{downloadBlob(b)} 
@@ -808,6 +772,5 @@ window.saveColoring=async()=>{
 
 function downloadBlob(blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "nurie.png"; a.click(); alert("画像を保存しました！"); }
 window.kickPlayer = async (targetId, targetName) => { if (!confirm(`${targetName} さんを強制退室させますか？`)) return; const newPlayers = State.roomData.players.filter(p => p.id !== targetId); let newTurnIdx = State.roomData.currentTurnIndex; if (newTurnIdx >= newPlayers.length) newTurnIdx = 0; try { await updateDoc(doc(db, COLLECTION_NAME, State.roomName), { players: newPlayers, currentTurnIndex: newTurnIdx }); } catch(e) { alert(e.message); } };
-let resizeTimeout;
-window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { const gameScreen = document.getElementById('screen-game'); const colorScreen = document.getElementById('screen-coloring'); if (gameScreen.style.display === 'flex') initCanvas(true); if (colorScreen.style.display === 'flex') initColoringCanvas(); }, 200); });
-window.copyInvite = () => { navigator.clipboard.writeText(getInviteUrl()).then(()=>alert("URLコピーしました")); };あ
+let resizeTimeout; window.addEventListener('resize', () => { clearTimeout(resizeTimeout); resizeTimeout = setTimeout(() => { const gameScreen = document.getElementById('screen-game'); const colorScreen = document.getElementById('screen-coloring'); if (gameScreen.style.display === 'flex') initCanvas(true); if (colorScreen.style.display === 'flex') initColoringCanvas(); }, 200); });
+window.copyInvite = () => { navigator.clipboard.writeText(getInviteUrl()).then(()=>alert("URLコピーしました")); };
