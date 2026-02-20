@@ -140,9 +140,8 @@ function setupTitleScreen() {
     }
 }
 
-// ★タイトル画面（下駄箱）に戻るための処理
+// タイトル画面（下駄箱）に戻るための処理
 window.returnToTitle = () => {
-    // 裏側の通信を安全にストップする
     if (State.unsubRoom) { State.unsubRoom(); State.unsubRoom = null; }
     if (State.unsubHistory) { State.unsubHistory(); State.unsubHistory = null; }
     if (State.timer) { clearInterval(State.timer); State.timer = null; }
@@ -716,6 +715,7 @@ window.deleteRoomData = async () => { if(!confirm("削除しますか？"))retur
 
 function renderGraduationScreen(history, isHost) { const currentScreen = document.querySelector('.screen.active'); if (currentScreen && (currentScreen.id === 'screen-coloring' || document.getElementById('detail-modal').style.display === 'flex')) return; window.showScreen('screen-graduation'); document.querySelectorAll('.room-name-label').forEach(el => el.innerText = State.roomName); document.getElementById('coloring-ticket-count').innerText = State.tickets; const grid = document.getElementById('grad-grid'); grid.innerHTML = ""; history.forEach((item, i) => { const div = document.createElement('div'); div.className = "grad-item"; const img = document.createElement('img'); img.src = item.url; img.onclick = () => openDetailModal(i); div.appendChild(img); if (item.fusens && item.fusens.length > 0) { const badge = document.createElement('span'); badge.style.fontSize = "10px"; badge.innerText = `💌 ${item.fusens.length}`; div.appendChild(document.createElement('br')); div.appendChild(badge); } grid.appendChild(div); }); const deleteArea = document.getElementById('host-delete-area'); if (isHost) { deleteArea.style.display = 'block'; } else { deleteArea.style.display = 'none'; } }
 
+// ★塗り絵キャンバスの初期化とイベント設定
 function initColoringCanvas() { 
     const c = document.getElementById('coloring-canvas'); 
     if(!cCtx) cCtx = c.getContext('2d'); 
@@ -727,33 +727,97 @@ function initColoringCanvas() {
     document.getElementById('line-art-overlay').src = State.colorUrl; 
     document.getElementById('pen-size-slider').value = 20; 
     window.setMarker('marker'); 
+    window.updateSize(); // プレビューを初期表示
 
     const getPos = (e) => {
         const r = c.getBoundingClientRect(); 
         const sx = c.width / r.width; 
         const sy = c.height / r.height; 
-        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, pressure: e.pressure };
+        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
     }; 
     
     let d = false; 
     
     c.onpointerdown = (e) => { d = true; c.setPointerCapture(e.pointerId); const p = getPos(e); cCtx.beginPath(); cCtx.moveTo(p.x, p.y); e.preventDefault(); }; 
+    
+    // ★筆圧で濃淡と太さを変える描画処理
     c.onpointermove = (e) => {
         if(d){
             const p = getPos(e);
-            if (cCtx.globalCompositeOperation !== 'destination-out' && p.pressure > 0 && e.pointerType === 'pen') {
+            // 筆圧（マウスは通常0.5）を取得。最低値を保証する。
+            const pressure = (e.pressure !== undefined && e.pressure > 0) ? e.pressure : 0.5;
+
+            if (cCtx.globalCompositeOperation !== 'destination-out') {
                 let baseSize = document.getElementById('pen-size-slider').value;
-                cCtx.lineWidth = baseSize * (p.pressure * 1.5);
+                // 太さの動的変化（筆圧が強いほど太く）
+                cCtx.lineWidth = baseSize * (0.4 + pressure * 0.8); 
+
+                // 濃淡の表現（筆圧で透明度を変える）
+                if (document.getElementById('tool-marker').classList.contains('selected')) {
+                    // マーカー: 薄く、重ね塗り重視。筆圧で透明度0.1〜0.5程度
+                    cCtx.globalAlpha = 0.1 + (pressure * 0.4);
+                } else {
+                    // クレヨン: 濃いめ。筆圧で透明度0.4〜0.9程度
+                    cCtx.globalAlpha = 0.4 + (pressure * 0.5);
+                }
             }
+            // 消しゴムの場合はサイズ・透明度は固定
+
             cCtx.lineTo(p.x, p.y); cCtx.stroke(); cCtx.beginPath(); cCtx.moveTo(p.x, p.y); e.preventDefault();
         }
     }; 
-    c.onpointerup = (e) => { d = false; c.releasePointerCapture(e.pointerId); window.updateSize(); }; 
+    c.onpointerup = (e) => { d = false; c.releasePointerCapture(e.pointerId); }; 
 }
 
 let cCtx;
-window.setMarker=(t)=>{ cCtx.globalCompositeOperation='source-over'; cCtx.lineWidth=document.getElementById('pen-size-slider').value; document.querySelectorAll('.tool-box').forEach(b=>b.classList.remove('selected')); if(t==='marker'){document.getElementById('tool-marker').classList.add('selected');updateColor();}else if(t==='crayon'){document.getElementById('tool-crayon').classList.add('selected');updateColor();}else{cCtx.globalCompositeOperation='destination-out';cCtx.globalAlpha=1;document.getElementById('tool-eraser').classList.add('selected');} };
-window.updateSize=()=>{cCtx.lineWidth=document.getElementById('pen-size-slider').value;}; window.updateColor=()=>{const c=document.getElementById('color-picker').value; document.documentElement.style.setProperty('--current-color',c); if(cCtx.globalCompositeOperation!=='destination-out'){ if(document.getElementById('tool-marker').classList.contains('selected')){ const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16); cCtx.strokeStyle=`rgba(${r},${g},${b},0.4)`; }else{ cCtx.strokeStyle=c; } } };
+window.setMarker=(t)=>{ 
+    cCtx.globalCompositeOperation='source-over'; 
+    document.querySelectorAll('.tool-box').forEach(b=>b.classList.remove('selected')); 
+    if(t==='marker'){document.getElementById('tool-marker').classList.add('selected');}
+    else if(t==='crayon'){document.getElementById('tool-crayon').classList.add('selected');}
+    else{cCtx.globalCompositeOperation='destination-out';document.getElementById('tool-eraser').classList.add('selected');} 
+    updateColor(); updateSize(); 
+};
+
+// ★ブラシサイズプレビューの描画
+window.updateSize=()=>{
+    const size = document.getElementById('pen-size-slider').value;
+    // 消しゴムの時は描画サイズをスライダーの値に設定（マーカー等は筆圧で変わる）
+    if(cCtx.globalCompositeOperation === 'destination-out') cCtx.lineWidth = size;
+    cCtx.globalAlpha = 1.0; // プレビュー用に一時的に戻す
+
+    const pCanvas = document.getElementById('brush-preview');
+    const pCtx = pCanvas.getContext('2d');
+    pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+    
+    const centerX = pCanvas.width / 2; centerY = pCanvas.height / 2;
+    const radius = size / 2;
+
+    pCtx.beginPath();
+    pCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    
+    if (cCtx.globalCompositeOperation === 'destination-out') {
+        pCtx.fillStyle = '#fff'; pCtx.strokeStyle = '#ccc'; pCtx.lineWidth = 2; pCtx.fill(); pCtx.stroke();
+    } else {
+        const c = document.getElementById('color-picker').value;
+        pCtx.fillStyle = c;
+        // マーカーは少し透明に見せる
+        if (document.getElementById('tool-marker').classList.contains('selected')) pCtx.globalAlpha = 0.6;
+        pCtx.fill();
+        pCtx.globalAlpha = 1.0;
+    }
+};
+
+// ★色の設定（筆圧で濃淡を変えるため、ここでは基本色のみ設定）
+window.updateColor=()=>{
+    const c=document.getElementById('color-picker').value; 
+    document.documentElement.style.setProperty('--current-color',c); 
+    if(cCtx.globalCompositeOperation!=='destination-out'){ 
+        const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16);
+        cCtx.strokeStyle=`rgb(${r},${g},${b})`; // 透明度は描画時に動的に決める
+    }
+    updateSize();
+};
 
 window.saveColoring=async()=>{ 
     if(!confirm("完成？"))return; 
