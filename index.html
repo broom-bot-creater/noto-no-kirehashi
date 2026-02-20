@@ -67,7 +67,7 @@
                 <button onclick="showHowTo()" class="btn-howto">📖 遊び方を見る</button>
             </div>
         </div>
-        <div class="version-tag">v24.0</div>
+        <div class="version-tag">v24.1</div>
     </div>
 
     <div id="screen-getabako" class="screen">
@@ -106,13 +106,19 @@
                  data-ad-format="auto"
                  data-full-width-responsive="true"></ins>
         </div>
-        <div class="notebook-header"><div class="header-title-box"><span class="room-name-label"></span></div><ul id="member-list"></ul><div id="header-sub-msg" style="font-size:12px;"></div>
-        <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
-        <button id="btn-disband" onclick="disbandRoom()" style="margin-top:10px; background:#d32f2f; border:1px solid #b71c1c; color:#fff; padding:5px 15px; border-radius:20px; font-size:12px; cursor:pointer; display:none; width:100%;">💣 教室を解散する</button>
+        <div class="notebook-header">
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; margin-bottom:5px;">
+                <button onclick="returnToTitle()" style="position:absolute; left:0; background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">👞 戻る</button>
+                <div class="header-title-box" style="margin-bottom:0;"><span class="room-name-label"></span></div>
+            </div>
+            
+            <ul id="member-list"></ul>
+            <div id="header-sub-msg" style="font-size:12px;"></div>
+            <div class="timer-pencil-container" style="margin-top:10px;"><div class="timer-bar-fill"></div></div>
+            <button id="btn-disband" onclick="disbandRoom()" style="margin-top:10px; background:#d32f2f; border:1px solid #b71c1c; color:#fff; padding:5px 15px; border-radius:20px; font-size:12px; cursor:pointer; display:none; width:100%;">💣 教室を解散する</button>
 
-        <button id="reset-room-btn" onclick="resetRoomHistory()" style="margin-top:5px; background:#ef5350; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:5px 10px; cursor:pointer; display:none;">🧹 黒板消し（履歴リセット）</button>
-        <button onclick="resumeDrawing()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:2px 5px; cursor:pointer;" ontouchstart="resumeDrawing()">⚠️ 強制描画</button>
-        <button onclick="leaveRoom()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button>
+            <button id="reset-room-btn" onclick="resetRoomHistory()" style="margin-top:5px; background:#ef5350; border:1px solid #fff; color:#fff; border-radius:10px; font-size:10px; padding:5px 10px; cursor:pointer; display:none;">🧹 黒板消し（履歴リセット）</button>
+            <button onclick="leaveRoom()" style="margin-top:5px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button>
         </div>
         <div class="waiting-msg"><div id="turn-indicator">あなたの番！</div><button id="continue-btn" onclick="resumeDrawing()" ontouchstart="resumeDrawing()" class="action-btn" style="width:auto; padding:10px 30px; display:none; margin:10px auto;">✏️ 続けて描く</button></div>
         <div style="padding:10px; font-size:12px; display:flex; justify-content:space-between; align-items:end;"><span style="background:rgba(255,255,255,0.8); padding:2px 5px; border-radius:4px;">これまでの落書き (<span id="history-count">0</span>)</span><button onclick="copyInvite()" class="secondary-btn">🔗 招待状コピー</button></div>
@@ -132,6 +138,7 @@
         
         <div class="notebook-header" style="padding:5px; margin:5px; display:flex; justify-content:space-between; align-items:center;">
             <div style="display:flex; align-items:center; gap:5px;">
+                <button onclick="returnToTitle()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding: 2px 5px; cursor:pointer;">👞戻る</button>
                 <span class="room-name-label" style="font-size:18px;"></span>
                 <button onclick="copyInvite()" style="background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding: 2px 5px;">🔗招待</button>
             </div>
@@ -152,7 +159,15 @@
     </div>
     
     <div id="screen-graduation" class="screen">
-        <div class="notebook-header"><div class="header-title-box">🎓 卒業制作</div><div style="font-size:12px; margin-top:5px;">好きな絵を塗って持って帰ろう！</div><div style="font-size:12px; color:#fff176;">残りチケット: <span id="coloring-ticket-count">1</span>枚</div><button onclick="leaveRoom()" style="margin-top:10px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button></div>
+        <div class="notebook-header">
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; margin-bottom:5px;">
+                <button onclick="returnToTitle()" style="position:absolute; left:0; background:rgba(255,255,255,0.2); border:1px solid #fff; color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">👞 戻る</button>
+                <div class="header-title-box" style="margin-bottom:0;">🎓 卒業制作</div>
+            </div>
+            <div style="font-size:12px; margin-top:5px;">好きな絵を塗って持って帰ろう！</div>
+            <div style="font-size:12px; color:#fff176;">残りチケット: <span id="coloring-ticket-count">1</span>枚</div>
+            <button onclick="leaveRoom()" style="margin-top:10px; background:transparent; border:1px solid #fff; color:#fff; border-radius:4px; font-size:10px; padding:2px 5px;">🏫 転校する（退出）</button>
+        </div>
         <div id="grad-grid"></div>
         <div style="padding: 20px; text-align: center;"><div id="host-delete-area" style="display:none; margin-top:20px; padding-top:20px; border-top:1px solid rgba(0,0,0,0.1);"><p style="font-size:12px; color:#d32f2f;">※日直専用</p><button onclick="deleteRoomData()" style="background:#d32f2f; color:#fff; border:none; padding:10px 20px; border-radius:4px;">🗑 教室を片付ける（全削除）</button></div></div>
     </div>
