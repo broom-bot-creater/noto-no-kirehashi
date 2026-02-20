@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, deleteDoc, addDoc, collection, query, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// --- ★ご自身の「合鍵」をここに貼り付けてください★ ---
+// --- 1:1000025799003:web:1938601e7e65c5d62f427e ---
 const firebaseConfig = {
     apiKey: "あなたのAPIキー",
     authDomain: "noto-no-kirehashi.firebaseapp.com",
