@@ -1,6 +1,13 @@
 :root { --current-color: #ffeb3b; } 
 * { box-sizing: border-box; } 
 
+/* ★キャンバスエリアでの意図しない選択（青くハイライトされる）を防ぐ魔法 */
+#canvas-area, #coloring-container, canvas {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
 /* PC版でスマホサイズに固定するための設定 */
 html { background-color: #222; } 
 body { 
